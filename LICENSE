@@ -1,0 +1,34 @@
+MIT License
+
+Copyright (c) 2026 BOTW Save Lab contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+附加声明（本仓库适用范围）
+----------------------------
+1. 本 LICENSE 仅适用于本项目原创代码（core/、editor/ 界面与逻辑、
+   启动器/、core/tests/ 等由本项目作者编写的部分）。
+2. 第三方文件（BotW-Save-Editor.exe、savdata_list*.json 等，若后续随
+   仓库发布）按其上游项目（Mystixor/BotW-Save-Editor）的原始许可
+   处理，不适用本许可证。
+3. 游戏数据提取物（物品译名、任务日志文本、旗标名、图标等）相关
+   知识产权归 Nintendo 所有，本仓库仅提供于社区研究用途，
+   不随本许可证授予任何 Nintendo 相关权利。

@@ -89,10 +89,6 @@ BOTW-Save-Lab\
 ├─ 启动器\
 └─ ...
 
-不要把自己的 game_data.sav 上传到 GitHub。
-
-项目已经通过 .gitignore 忽略存档和 backups 目录。
-
 四、启动存档实验室
 
 双击：

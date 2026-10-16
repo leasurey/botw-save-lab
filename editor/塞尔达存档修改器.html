@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>BOTW 存档实验室 V13.7</title>
+<title>BOTW 存档实验室 V13.8</title>
 <style>
 *{box-sizing:border-box}
 :root{
@@ -1035,7 +1035,7 @@ button:active:not(:disabled){transform:translateY(1px) scale(.98)}
   <div class="brand">
     <div class="sheikah-eye" title="Sheikah"><div class="eyeball"></div><div class="pupil"></div><div class="line"></div></div>
     <div class="brand-name">BOTW 存档修改器</div>
-    <div class="brand-sub">Wii U 1.5.0 · V13.7</div>
+    <div class="brand-sub">Wii U 1.5.0 · V13.8</div>
   </div>
   <nav>
     <button class="tab active" data-view="home" data-title="首页">🏠 <span>首页</span></button>
@@ -1075,7 +1075,8 @@ button:active:not(:disabled){transform:translateY(1px) scale(.98)}
         <button id="import-all" class="primary">📦 全部一键导入</button>
         <button id="open" class="ghost">📂 导入 JSON</button>
         <button id="export" class="primary">💾 导出 JSON</button>
-        <label class="chk"><input type="checkbox" id="useOrigName"> 用原文件名</label>
+        <button id="export-all" class="primary" title="一次性导出所有已修改的 JSON（savdata/背包/马匹/位置）">💾 一键导出全部</button>
+        <label class="chk"><input type="checkbox" id="useOrigName"> 用原文件名</label><span id="export-target" class="uw-text" style="font-size:11px;color:var(--fg3);margin-left:8px">导出目标：未导入</span>
       </div>
       <div class="group">
         <button id="undo" class="ghost" disabled>↩️ 撤销</button>
@@ -1100,7 +1101,7 @@ button:active:not(:disabled){transform:translateY(1px) scale(.98)}
     <div class="hero">
       <div class="hero-main">
         <div class="htitle">BOTW 存档修改器</div>
-        <div class="hbadges"><span class="chip gold">Wii U 1.5.0</span><span class="chip">V13.7</span><span class="chip">savdata + 背包 + 马匹 + 位置 + 挑战 + 体检</span></div>
+        <div class="hbadges"><span class="chip gold">Wii U 1.5.0</span><span class="chip">V13.8</span><span class="chip">savdata + 背包 + 马匹 + 位置 + 挑战 + 体检</span></div>
         <div class="hdesc">终端生成 JSON → 在这里编辑导出 → 终端写回。每次写回前 main.py 会自动创建 <b>.bak</b> 备份，改坏可随时还原。</div>
       </div>
     </div>
@@ -1416,7 +1417,7 @@ function expandDye(baseIds, noDye){
 }
 
 const ICON_SHEETS = {
-  Weapon_Sword:  { file:'Weapon_Sword.png',  ids:['001','002','003','004','005','006','007','008','009','013','014','015','016','017','018','019','020','021','022','023','024','025','027','029','030','031','033','034','035','040','041','043','044','047','048','049','050','051','052','053','056','057','058','059','060','061','062','070','071','072','073','500','501','502'] },
+  Weapon_Sword:  { file:'Weapon_Sword.png',  ids:['001','002','003','004','005','006','007','008','009','013','014','015','016','017','018','019','020','021','022','023','024','025','027','029','030','031','033','034','035','040','041','043','044','047','048','049','050','051','052','053','056','057','058','059','060','061','062','070','071','072','073','500','501','502','503'] },
   Weapon_Lsword: { file:'Weapon_Lsword.png', ids:['001','002','003','004','005','006','010','011','012','013','014','015','016','017','018','019','020','023','024','027','029','030','031','032','033','034','035','036','037','038','041','045','047','051','054','055','056','057','059','060','074'] },
   Weapon_Spear:  { file:'Weapon_Spear.png',  ids:['001','002','003','004','005','006','007','008','009','010','011','012','013','014','015','016','017','018','021','022','023','024','025','027','028','029','030','031','032','033','034','035','036','037','038','047','049','050'] },
   Weapon_Bow:    { file:'Weapon_Bow.png',    ids:['001','002','003','004','006','009','011','013','014','015','016','017','023','026','027','028','029','030','032','033','035','036','038','040','071','072'] },
@@ -1475,6 +1476,7 @@ const ITEM_NAMES = {
   'Weapon_Sword_061':'冰雪杖', 'Weapon_Sword_062':'电击杖', 'Weapon_Sword_070':'大师之剑',
   'Weapon_Sword_071':'大师之剑 [高级]', 'Weapon_Sword_072':'大师之剑 [终极]', 'Weapon_Sword_073':'恶魔圆刃',
   'Weapon_Sword_500':'灯笼 [海拉鲁国王的手杖]', 'Weapon_Sword_501':'（未使用）', 'Weapon_Sword_502':'必杀之剑 [DLC v1.4]',
+  'Weapon_Sword_503':'蓝光必杀剑 [DLC v1.4]',
   'Weapon_Lsword_001':'旅人双手剑', 'Weapon_Lsword_002':'士兵双手剑', 'Weapon_Lsword_003':'骑士双手剑',
   'Weapon_Lsword_004':'波克棒', 'Weapon_Lsword_005':'尖刺波克棒', 'Weapon_Lsword_006':'龙骨波克棒',
   'Weapon_Lsword_010':'莫力布林棍', 'Weapon_Lsword_011':'尖刺莫力布林棍', 'Weapon_Lsword_012':'龙骨莫力布林棍',
@@ -1801,6 +1803,21 @@ const ITEM_NAMES = {
   'GameRomHorseNushi':'山林霸主 [山神]', 'GameRomHorseEpona':'伊波娜', 'GameRomHorseBone':'骷髅马',
   'GameRomHorse00L':'巨马', 'GameRomHorseZelda':'王族白马', 'Obj_DLC_HeroSeal_Zora':'露塔之证 [DLC v1.4]',
   'Obj_DLC_HeroSeal_Gerudo':'娜波力斯之证 [DLC v1.4]', 'Obj_DLC_HeroSeal_Goron':'鲁达尼亚之证 [DLC v1.4]', 'Obj_DLC_HeroSeal_Rito':'梅德之证 [DLC v1.4]',
+  'Item_InsectGet_NormalK':'普通虫K', 'Item_InsectGet_NormalO':'普通虫O', 'Item_InsectGet_NormalZ':'普通虫Z',
+  'Item_Cook_C_17_Mod01':'药剂01', 'Item_Cook_C_17_Mod02':'药剂02', 'Item_Cook_C_17_Mod03':'药剂03',
+  'Item_Cook_C_17_Mod04':'药剂04', 'Item_Cook_C_17_Mod05':'药剂05', 'Item_Cook_C_17_Mod06':'药剂06',
+  'Item_Cook_C_17_Mod07':'药剂07', 'Item_Cook_C_17_Mod08':'药剂08', 'Item_Cook_C_17_Mod09':'药剂09',
+  'Item_Cook_C_17_Mod10':'药剂10',
+  '_none':'无',
+  'Dye01':'染色01', 'Dye02':'染色02', 'Dye03':'染色03', 'Dye04':'染色04', 'Dye05':'染色05',
+  'Dye06':'染色06', 'Dye07':'染色07', 'Dye08':'染色08', 'Dye09':'染色09', 'Dye10':'染色10',
+  'Dye11':'染色11', 'Dye12':'染色12', 'Dye13':'染色13', 'Dye14':'染色14', 'Dye15':'染色15',
+  'PictureBook00':'相册00', 'PictureBook01':'相册01', 'PictureBook02':'相册02',
+  'PictureBook03':'相册03', 'PictureBook04':'相册04', 'PictureBook05':'相册05',
+  'Horse_Link_Mane':'Link鬃毛', 'Horse_Link_Mane_01':'Link鬃毛01', 'Horse_Link_Mane_02':'Link鬃毛02',
+  'Horse_Link_Mane_03':'Link鬃毛03', 'Horse_Link_Mane_04':'Link鬃毛04', 'Horse_Link_Mane_05':'Link鬃毛05',
+  'Horse_Link_Mane_06':'Link鬃毛06', 'Horse_Link_Mane_07':'Link鬃毛07', 'Horse_Link_Mane_08':'Link鬃毛08',
+  'Horse_Link_Mane_09':'Link鬃毛09',
 };
 
 /* ============================================================
@@ -1830,6 +1847,19 @@ let invCapacity = null;  // ★ V11.6：背包容量（inventory.json 的 {"_cap
 let hData = [], hOriginal = [], hChanges = {};  // 马匹状态（声明前置，防 TDZ 隐患）
 let pData = null, pOriginal = null;             // ★ V11.5 位置状态：null = 未读取
 let exportedState = { sav: false, inv: false, horse: false, pos: false };  // 已导出标记
+/* ★ 修复：四个「已载入」标志原为 refreshStatus() 内的 const（函数局部），
+   但 undoMultiTab / beforeunload / #export-all 等 IIFE 顶层代码要读它们 →
+   运行时抛 ReferenceError: savLoaded is not defined，表现为按钮点击无反应。
+   这里提升到 IIFE 顶层，refreshStatus() 内改为纯赋值。 */
+let savLoaded = false, invLoaded = false, horseLoaded = false, posLoaded = false;
+/* ★ V14：独立撤销栈——savdata/背包/马匹/位置各自维护 */
+let invUndoStack = [], horseUndoStack = [], posUndoStack = [];
+function pushInvUndo(snapshot){ invUndoStack.push(snapshot); if(invUndoStack.length>50) invUndoStack.shift(); }
+function pushHorseUndo(snapshot){ horseUndoStack.push(snapshot); if(horseUndoStack.length>50) horseUndoStack.shift(); }
+function pushPosUndo(snapshot){ posUndoStack.push(snapshot); if(posUndoStack.length>50) posUndoStack.shift(); }
+function undoInventory(){ if(!invUndoStack.length){ setStatus("❌ 背包无可撤销修改。"); return; } const snap = invUndoStack.pop(); invData = JSON.parse(JSON.stringify(snap.data)); invChanges = JSON.parse(JSON.stringify(snap.changes)); invModChanges = JSON.parse(JSON.stringify(snap.modChanges)); invNameChanges = JSON.parse(JSON.stringify(snap.nameChanges)); renderInventory(); setStatus("↩️ 已撤销背包修改。"); }
+function undoHorse(){ if(!horseUndoStack.length){ setStatus("❌ 马匹无可撤销修改。"); return; } const snap = horseUndoStack.pop(); hData = JSON.parse(JSON.stringify(snap.data)); hChanges = JSON.parse(JSON.stringify(snap.changes)); renderHorses(); setStatus("↩️ 已撤销马匹修改。"); }
+function undoPosition(){ if(!posUndoStack.length){ setStatus("❌ 位置无可撤销修改。"); return; } const snap = posUndoStack.pop(); pData = JSON.parse(JSON.stringify(snap.data)); renderPosition(); setStatus("↩️ 已撤销位置修改。"); }
 
 /* ============================================================
    📍 地点坐标库（★ V11.5 · 数据驱动：加地点只需往数组加一条）
@@ -1889,7 +1919,7 @@ const ARMOR_TIERS = (function(){
 const MAX_HITS = 2000;
 
 const FLOAT_FIELDS = new Set(["StaminaMax","StaminaCurrentMax","Motorcycle_Energy"]);
-const DANGER_FIELDS = new Set(["StaminaMax","StaminaCurrentMax","Motorcycle_Energy","WM_Time","WM_BloodyMoonTimer","WM_bloodyEndReserveTimer"]);
+const DANGER_FIELDS = new Set(["StaminaMax","StaminaCurrentMax","Motorcycle_Energy","WM_Time","WM_BloodyMoonTimer","WM_bloodyEndReserveTimer","Player_X","Player_Y","Player_Z","PosX","PosY","PosZ","IsGet_","ChallengeData_","WM_WeatherForce","WM_BloodMoonFlag"]);
 
 const FIELD_LIMITS = {
   "CurrentRupee":{min:0,max:999999,unit:"卢比"},"CurrentMamo":{min:0,max:999999,unit:"怪币"},
@@ -1899,7 +1929,8 @@ const FIELD_LIMITS = {
   "Npc_Goddess_UtuwaSum":{min:0,max:120,unit:"容器总数"},
   "HiddenKorok_Number":{min:0,max:900,unit:"克洛格"},
   "DungeonClearCounter":{min:0,max:120,unit:"神庙"},
-  "WM_NumberOfDays":{min:0,max:9999999,unit:"天"}
+  "WM_NumberOfDays":{min:0,max:9999999,unit:"天"},
+  "Player_X":{min:-50000,max:50000,unit:"世界坐标X"},"Player_Y":{min:-50000,max:50000,unit:"世界坐标Y"},"Player_Z":{min:-50000,max:50000,unit:"世界坐标Z"}
 };
 const LINKED_FIELDS = {
   "MaxHartValue":{partners:["CurrentHart","Npc_Goddess_UtuwaSum"],message:"改最大心数时游戏按此值画血条。若不同步调整「当前心数」和「女神像容器统计」，血条可能消失。"},
@@ -2339,7 +2370,8 @@ function locateByNameOcc(name, occ){
 function sheetOf(itemId){
   let m;
   if(m = itemId.match(/^(Weapon_Sword|Weapon_Lsword|Weapon_Spear|Weapon_Bow|Weapon_Shield)_(.+)$/))
-    return { sheet: m[1], key: m[2] };
+    /* 蓝光必杀剑 503 复用 502 的图标（图标表里只有 502，没有 503 贴图） */
+    return { sheet: m[1], key: (m[1] === 'Weapon_Sword' && m[2] === '503') ? '502' : m[2] };
   if(m = itemId.match(/^Armor_(\d+)_(Head|Upper|Lower)(?:_Dye(\d+))?$/)){
     let num = m[1];
     if(m[2] === 'Lower' && num === '140') num = '141';  /* 雪靴在图里叫 141 */
@@ -3256,8 +3288,24 @@ function renderHistory(){
   }).join("");
   updateToolbar();
 }
-undoBtn.onclick = undoLastEdit;
-undoBtn2.onclick = undoLastEdit;
+function undoMultiTab(){
+  /* 优先撤销 savdata（如果当前在首页且有 savdata 修改）*/
+  if(editHistory.length && activeView === "home" && savLoaded){
+    undoLastEdit(); return;
+  }
+  /* 否则按当前可见视图撤销 */
+  if(activeView === "inventory" && invUndoStack.length){ undoInventory(); return; }
+  if(activeView === "horse" && horseUndoStack.length){ undoHorse(); return; }
+  if(activeView === "position" && posUndoStack.length){ undoPosition(); return; }
+  /* 兜底：尝试任何可用的撤销栈 */
+  if(editHistory.length){ undoLastEdit(); return; }
+  if(invUndoStack.length){ undoInventory(); return; }
+  if(horseUndoStack.length){ undoHorse(); return; }
+  if(posUndoStack.length){ undoPosition(); return; }
+  setStatus("❌ 无可撤销的修改。");
+}
+undoBtn.onclick = undoMultiTab;
+undoBtn2.onclick = undoMultiTab;
 clearHist.onclick = () => {
   if(!editHistory.length) return;
   if(!confirm("清空 " + editHistory.length + " 条记录？")) return;
@@ -3325,6 +3373,26 @@ document.querySelectorAll("[data-goto]").forEach(c => {
     const t = document.querySelector('.tab[data-view="' + c.dataset.goto + '"]');
     if(t) t.click();
   });
+});
+
+/* ★ V14：关闭标签页前提醒未导出修改 */
+window.addEventListener("beforeunload", function(e){
+  const hasUnsaved = exportedState.sav === false || exportedState.inv === false || exportedState.horse === false || exportedState.pos === false || editHistory.length > 0 || invUndoStack.length > 0 || horseUndoStack.length > 0 || posUndoStack.length > 0;
+  const anyLoaded = savLoaded || invLoaded || horseLoaded || posLoaded;
+  if(anyLoaded && hasUnsaved && (editHistory.length > 0 || Object.keys(invChanges||{}).length>0 || Object.keys(hChanges||{}).length>0 || Object.keys(pData||{}).length>0)){
+    e.preventDefault();
+    e.returnValue = "";
+    return "你有未导出的修改，关闭页面后将丢失。请先点「💾 导出 JSON」保存。";
+  }
+});
+
+/* ★ V14：搜索快捷键 / 或 Ctrl+K 聚焦全局搜索框 */
+window.addEventListener("keydown", function(e){
+  if((e.key === "/" && !(e.target && (e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA"))) || (e.ctrlKey && e.key === "k")){
+    e.preventDefault();
+    const q = document.getElementById("q");
+    if(q){ q.focus(); q.select(); }
+  }
 });
 
 /* ★ V11.6：savdata 导入逻辑抽成函数，供单文件导入与「📦 全部一键导入」共用。
@@ -3565,6 +3633,8 @@ function doExport(){
     exportedState.sav = true;
     hideUnsavedWarning();   /* ★ V12.1：导出成功后隐藏警告 */
     setStatus("已导出 " + name + " · " + (blob.size/1048576).toFixed(2) + " MB · " + editHistory.length + " 处修改");
+    /* ★ V14：导出后提示回终端写回 */
+    setTimeout(()=>{ setStatus("💡 提示：导出完成，请回终端按回车继续写回 SAV。"); }, 800);
   }
 }
 function fallbackDownload(blob, name){
@@ -3588,6 +3658,104 @@ document.getElementById("export").onclick = () => {
     if(!r2.ok){ setStatus("❌ JSON 不合法：" + r2.msg); return; }
     doExport();
   }, 30);
+};
+
+/* ★ V15：一键导出全部已修改的 JSON
+   ------------------------------------------------------------
+   本地服务模式（?auto=1&dir=backups/<日期>）下，直接把内容 POST 给
+   core/main.py 新增的 /__botw_write 端点，就地覆盖 backups/<日期>/ 里的
+   game_data.sav.json / inventory.json / horses.json / position.json，
+   省掉「下载到 Downloads 再手工覆盖」这一步。
+   双击 file:// 打开时没有该端点，自动退回旧的浏览器下载流程。 */
+
+function exportAllSavName(){
+  /* 优先用导入时的原文件名（main.py 读回的就是它）；
+     其次从自动导入清单里挑出非 inventory/horses/position 的那个。 */
+  if(originalFileName && /\.json$/i.test(originalFileName)) return originalFileName;
+  const files = window.__BOTW_EXPORT_FILES__ || [];
+  const known = { "inventory.json":1, "horses.json":1, "position.json":1 };
+  for(let i = 0; i < files.length; i++) if(!known[files[i]]) return files[i];
+  if(exportName && /\.json$/i.test(exportName)) return exportName;
+  return "game_data.sav.json";
+}
+function exportAllPosText(){
+  /* 与「📍 导出 position.json」完全同一套字段 */
+  return JSON.stringify({
+    x: pData.x, y: pData.y, z: pData.z, angle: pData.angle,
+    map_type: pData.map_type, map_name: pData.map_name,
+    confirm_non_mainfield: !!pData.confirm_non_mainfield,
+  }, null, 2);
+}
+function exportAllTargets(){
+  /* 返回待导出的 [{key,name,content}]；已导出或未载入的跳过 */
+  const out = [];
+  if(savLoaded && textCache && !exportedState.sav)
+    out.push({ key:"sav", name: exportAllSavName(), content: textCache });
+  if(invLoaded && invData.length && !exportedState.inv)
+    out.push({ key:"inv", name:"inventory.json", content: currentInvText() });
+  if(horseLoaded && hData.length && !exportedState.horse)
+    out.push({ key:"horse", name:"horses.json", content: JSON.stringify(hData, null, 2) });
+  if(posLoaded && pData && !exportedState.pos)
+    out.push({ key:"pos", name:"position.json", content: exportAllPosText() });
+  return out;
+}
+function exportAllMarkExported(keys){
+  keys.forEach(k => {
+    if(k === "sav"){ exportedState.sav = true; hideUnsavedWarning(); }
+    else if(k === "inv"){ markInvSaved(currentInvText()); }
+    else if(k === "horse"){ exportedState.horse = true; }
+    else if(k === "pos"){ exportedState.pos = true; }
+  });
+}
+function exportAllFallback(){
+  /* 旧流程：依次点四个导出按钮，走浏览器下载 */
+  if(savLoaded && textCache && !exportedState.sav) document.getElementById("export").click();
+  setTimeout(function(){
+    if(invLoaded && invData.length && !exportedState.inv) document.getElementById("inv-export").click();
+    setTimeout(function(){
+      if(horseLoaded && hData.length && !exportedState.horse) document.getElementById("horse-export").click();
+      setTimeout(function(){
+        if(posLoaded && pData && !exportedState.pos) document.getElementById("pos-export").click();
+      }, 600);
+    }, 600);
+  }, 600);
+}
+
+document.getElementById("export-all").onclick = function(){
+  const targets = exportAllTargets();
+  if(!targets.length){ setStatus("所有已载入数据均已导出。"); return; }
+
+  const dir = window.__BOTW_EXPORT_DIR__;
+  const canWrite = !!dir && /^https?:$/i.test(location.protocol) && typeof fetch === "function";
+  const names = targets.map(t => t.name);
+
+  if(!canWrite){
+    /* file:// 或没有导出目录 → 退回浏览器下载 */
+    setStatus("正在一键导出 " + names.join(", ") + "……");
+    exportAllFallback();
+    setTimeout(function(){
+      setStatus("🎯 一键导出全部完成 · 请回终端按回车继续写回 SAV。");
+      toast("🎯 已导出全部 JSON，请回终端继续","ok");
+    }, 2000);
+    return;
+  }
+
+  setStatus("正在一键写回 backups/" + dir.replace(/^backups\//,"") + " ……");
+  fetch(location.origin + "/__botw_write", {
+    method: "POST",
+    headers: { "Content-Type": "application/json;charset=utf-8" },
+    body: JSON.stringify({ dir: dir, files: targets.map(t => ({ name: t.name, content: t.content })) })
+  }).then(function(r){ return r.json(); }).then(function(res){
+    if(!res || !res.ok) throw new Error((res && (res.error || (res.errors||[]).join("; "))) || "服务端返回失败");
+    exportAllMarkExported(targets.map(function(t){ return t.key; }));
+    setStatus("✅ 已直接写回 backups/" + (res.dir || dir) + " · " + res.written.join(", ") + " · 回终端按回车继续写回 SAV");
+    toast("🎯 已写回 " + res.written.length + " 个文件到 backups", "ok");
+  }).catch(function(err){
+    console.error("[BOTW] 写回 backups 失败：", err);
+    setStatus("❌ 写回 backups 失败（" + err.message + "）· 已改用浏览器下载");
+    toast("⚠️ 写回失败，改用下载", "err");
+    exportAllFallback();
+  });
 };
 revertBtn.onclick = () => {
   if(!originalCache){ setStatus("请先导入 JSON。"); return; }
@@ -4063,6 +4231,7 @@ function startEditInv(slotEl){
       refreshInvSlot(slot);
       return;
     }
+    pushInvUndo({ data: invData.map(x=>({...x})), changes: {...invChanges}, modChanges: {...invModChanges}, nameChanges: {...invNameChanges} });
     if(v === item.value){
       delete invChanges[slot];
     } else {
@@ -4533,6 +4702,7 @@ function renderHorses(){
 }
 
 function setHorseField(slot, field, value){
+  pushHorseUndo({ data: hData.map(x=>({...x})), changes: JSON.parse(JSON.stringify(hChanges)) });
   const h = hData.find(x => x.slot === slot);
   const o = hOriginal.find(x => x.slot === slot);
   if(!h || !o) return;
@@ -4736,6 +4906,7 @@ document.getElementById("pos-groups").addEventListener("change", e => {
     if(raw === ""){ renderPos(); return; }   // 清空 = 还原为显示值
     const v = Number(raw);
     if(!Number.isFinite(v)){ setStatus("❌ 请输入有效数字。"); renderPos(); return; }
+    pushPosUndo({ data: JSON.parse(JSON.stringify(pData)) });
     pData[num.dataset.axis] = v;
     updatePosMeta();
     setStatus("坐标 " + num.dataset.axis.toUpperCase() + " → " + v + "（记得导出）");
@@ -4747,6 +4918,7 @@ document.getElementById("pos-groups").addEventListener("change", e => {
     const l = LOCATION_DB[Number(tp.value)];
     if(!l) return;
     if(!confirmNonMainField()){ renderPos(); return; }
+    pushPosUndo({ data: JSON.parse(JSON.stringify(pData)) });
     pData.x = l.x; pData.y = l.y; pData.z = l.z;
     renderPos();
     setStatus("🧭 已填入「" + l.cn + "」坐标（X=" + l.x + " Y=" + l.y + " Z=" + l.z + "）· 记得导出");
@@ -4766,6 +4938,7 @@ document.getElementById("pos-groups").addEventListener("click", e => {
     const l = posNearest(pData.x, pData.y, pData.z)[Number(fill.dataset.posfill)];
     if(!l) return;
     if(!confirmNonMainField()) return;
+    pushPosUndo({ data: JSON.parse(JSON.stringify(pData)) });
     pData.x = l.x; pData.y = l.y; pData.z = l.z;
     renderPos();
     setStatus("🧭 已填入「" + l.cn + "」坐标 · 记得导出");
@@ -4838,10 +5011,10 @@ document.getElementById("pos-export").onclick = () => {
    V11.2 全局状态面板 + 首页仪表盘
    ============================================================ */
 function refreshStatus(){
-  const savLoaded = !!textCache;
-  const invLoaded = invData.length > 0;
-  const horseLoaded = hData.length > 0;
-  const posLoaded = !!pData;
+  savLoaded = !!textCache;      /* ★ 顶层已声明，此处只赋值 */
+  invLoaded = invData.length > 0;
+  horseLoaded = hData.length > 0;
+  posLoaded = !!pData;
   const invPending = invPendingCount();   // ★ V11.7：与背包页共用同一处统计，避免两套算法走偏
   const horsePending = Object.keys(hChanges).length;
   const horseOwned = hData.filter(h => h.actor).length;
@@ -5375,6 +5548,13 @@ updateToolbar();
     if (q.get("auto") !== "1") return;
     var dir = (q.get("dir") || "").replace(/^\/+|\/+$/g, "");
     var names = (q.get("files") || "").split(",").filter(Boolean);
+
+    /* ★ 新增：记住导出目录与文件清单，供「🎯 一键导出」直接写回 backups 用。
+       本地服务模式（http://127.0.0.1:<port>/…?auto=1&dir=backups/<日期>）才有值；
+       双击 file:// 打开时这里是空，一键导出会自动退回浏览器下载。 */
+    window.__BOTW_EXPORT_DIR__ = dir;
+    window.__BOTW_EXPORT_FILES__ = names;
+
     if (!names.length) return;
 
     var base = location.origin + "/";

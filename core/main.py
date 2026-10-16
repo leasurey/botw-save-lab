@@ -118,7 +118,7 @@ for _stream in (sys.stdout, sys.stderr):
 #   · HTML <title> / 品牌徽章、pytest.ini 注释、刷新挑战数据.js：静态文本，改版本时同步
 # 注：代码里的「★ V11.x / V12.x / V13.0~V13.6」是**历史改动溯源标记**
 #    （表示该行改动是哪个版本引入的），按原样保留，不属于"当前版本号"。
-APP_VERSION = "V13.7"
+APP_VERSION = "V13.8"
 
 
 # ------------------------------------------------------------
@@ -144,19 +144,36 @@ def _flush_stdin():
 
 def wait_for_user_done():
     """★ V13.5：编辑阶段的关键等待——必须真的等到用户回来按回车。
-    先清空键盘缓冲区，再用 input() 阻塞。"""
+    先清空键盘缓冲区，再用 input() 阻塞。
+    ★ V14：若设 BOTW_AUTO_DETECT=1，则监视 JSON 文件 mtime，自动继续。"""
+    auto = os.environ.get("BOTW_AUTO_DETECT") == "1"
+    if auto:
+        print("⚡ BOTW_AUTO_DETECT=1：自动检测模式，JSON 文件变化后将自动继续。")
+        print("   如需手动继续，请按 Ctrl+C 中断。")
+        _flush_stdin()
+        import time as _time
+        targets = [json_path] if "json_path" in dir() else []
+        try:
+            mtimes = {t: os.path.getmtime(t) for t in targets if os.path.isfile(t)}
+            while True:
+                _time.sleep(1.0)
+                for t in targets:
+                    if os.path.isfile(t) and os.path.getmtime(t) != mtimes.get(t):
+                        print(f"\n✅ 检测到 {os.path.basename(t)} 已变化，自动继续……")
+                        return
+        except KeyboardInterrupt:
+            print("\n⚡ 已手动中断自动检测，进入手动等待。")
     _flush_stdin()
     print()
     print("╔══════════════════════════════════════════════╗")
     print("║  现在去浏览器里编辑 JSON，改完再回来！       ║")
     print("║  编辑完成后，回到本窗口按任意键继续          ║")
-    print("╚══════════════════════════════════════════════╝")
+    print("╚═══════════════════════════════════════════════╝")
     try:
         import msvcrt
         msvcrt.getch()   # 等一个按键，比 input() 更可靠，不会被残留回车跳过
     except Exception:
         input("\n按回车继续...")
-
 
 def find_exe(base_dirs, exe_name="BotW-Save-Editor.exe"):
     """★ V12.3：重组后 exe 在 core/BotW-Save-Editor/ 里。
@@ -547,13 +564,133 @@ import urllib.parse
 _HTTP_SERVER = None  # 保持引用，进程退出前不回收
 _HTTP_PORT = None     # ★ V13.6：连同端口一起记住（旧版第二次调用会因解包失败而崩）
 
+_MAX_WRITE_BYTES = 64 * 1024 * 1024   # ★ 新增：单次写回上限（savdata JSON 可能好几 MB）
+
+
+def _safe_write_target(dir_param, name):
+    """★ 新增：把网页传来的 (dir, name) 解析成绝对路径，并做白名单校验。
+
+    只允许写进 BASE_DIR/backups 之下；name 必须是纯文件名（不许带路径分隔符）。
+    任一条件不满足就抛 ValueError，由 do_POST 转成错误响应。
+    """
+    name = (name or "").strip()
+    if not name or name in (".", ".."):
+        raise ValueError("文件名为空")
+    if "/" in name or "\\" in name or "\x00" in name:
+        raise ValueError("文件名不许带路径分隔符：" + name)
+    rel = (dir_param or "").replace("\\", "/").strip("/")
+    if not rel:
+        raise ValueError("未指定 backups 下的日期目录")
+    target_dir = os.path.realpath(os.path.join(BASE_DIR, rel))
+    backups_root = os.path.realpath(BACKUP_DIR)
+    if os.path.commonpath([target_dir, backups_root]) != backups_root:
+        raise ValueError("只允许写 backups/ 之下的目录：" + rel)
+    os.makedirs(target_dir, exist_ok=True)
+    return os.path.join(target_dir, name)
+
+
+class _SilentHTTPHandler(http.server.SimpleHTTPRequestHandler):
+    """静默忽略客户端主动断开连接的错误。
+    浏览器提前关闭（如用户关闭标签页、或 fetch 请求被取消）时，
+    Python 内置 HTTP 服务器会抛出 ConnectionAbortedError / BrokenPipeError，
+    这里捕获并忽略，避免控制台刷屏 traceback。"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=BASE_DIR, **kwargs)
+
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+            pass
+
+    def do_POST(self):
+        """★ 新增：让网页把编辑后的 JSON 直接写回 backups/<日期>/，
+        省掉「下载到 Downloads 再手工覆盖」这一步。
+
+        请求：POST /__botw_write
+        请求体：{"dir": "backups/2026-10-16",
+                 "files": [{"name": "inventory.json", "content": "..."}, ...]}
+        安全约束：目录必须落在 backups/ 之下，文件名必须是纯文件名。
+        本服务只监听 127.0.0.1，不对外网开放。
+        """
+        try:
+            if urllib.parse.urlparse(self.path).path != "/__botw_write":
+                self.send_error(404, "Not Found")
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except (TypeError, ValueError):
+                length = 0
+            if length <= 0:
+                self._reply_json(400, {"ok": False, "error": "缺少请求体"})
+                return
+            if length > _MAX_WRITE_BYTES:
+                self._reply_json(413, {"ok": False, "error": "请求体过大"})
+                return
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except Exception as e:
+                self._reply_json(400, {"ok": False, "error": "JSON 解析失败：" + str(e)})
+                return
+            if not isinstance(payload, dict) or not isinstance(payload.get("files"), list):
+                self._reply_json(400, {"ok": False, "error": "请求体结构不对"})
+                return
+
+            dir_param = payload.get("dir") or ""
+            written, errors = [], []
+            for item in payload["files"]:
+                name = str(item.get("name", "")).strip() if isinstance(item, dict) else ""
+                content = item.get("content") if isinstance(item, dict) else None
+                if not name:
+                    errors.append("(空文件名)")
+                    continue
+                if not isinstance(content, str):
+                    errors.append(name + "：content 不是字符串")
+                    continue
+                try:
+                    target = _safe_write_target(dir_param, name)
+                    with open(target, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    written.append(name)
+                except Exception as e:
+                    errors.append(name + "：" + str(e))
+
+            if errors and not written:
+                self._reply_json(400, {"ok": False, "written": written,
+                                       "errors": errors, "dir": dir_param})
+            else:
+                self._reply_json(200, {"ok": True, "written": written,
+                                       "errors": errors, "dir": dir_param})
+            for nm in written:
+                print("✓ 网页写回：" + (dir_param or ".") + "/" + nm)
+        except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as e:
+            try:
+                self._reply_json(500, {"ok": False, "error": str(e)})
+            except Exception:
+                pass
+
+    def _reply_json(self, code, obj):
+        """回一段 JSON 响应（网页端用 r.json() 读）。"""
+        data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+            pass
+
 
 def start_local_server():
     """在 BASE_DIR 根目录起一个临时 HTTP 服务，返回 (server, port)。"""
     global _HTTP_SERVER, _HTTP_PORT
     if _HTTP_SERVER is not None:
         return _HTTP_SERVER, _HTTP_PORT
-    handler = lambda *a, **kw: http.server.SimpleHTTPRequestHandler(*a, directory=BASE_DIR, **kw)
+    handler = _SilentHTTPHandler
     # 端口 0 = 系统自动分配空闲端口
     _HTTP_SERVER = socketserver.TCPServer(("127.0.0.1", 0), handler)
     port = _HTTP_SERVER.server_address[1]
@@ -612,7 +749,12 @@ def prompt_choose_sav():
     # 去重 + 按修改时间倒序（最新的一档排最前，和 find_all_sav_files 一致）
     sav_files = sorted(set(hits), key=lambda p: os.path.getmtime(p), reverse=True)
     if not sav_files:
-        print("❌ 没找到 .sav 文件（把 game_data.sav 放到项目根目录或 backups\\ 里）。")
+        print("❌ 没找到 .sav 文件。")
+        print("   请把 game_data.sav 放到以下任一位置：")
+        print("     • 项目根目录（当前目录）")
+        print("     • backups/ 子目录")
+        print("     • 任意子目录（会递归搜索）")
+        print("   示例：把 game_data.sav 放到 botw_lab.exe 所在的文件夹即可。")
         return None
     if len(sav_files) == 1:
         print(f"✓ 检测到唯一存档：{os.path.relpath(sav_files[0], BASE_DIR)}")

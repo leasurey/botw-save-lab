@@ -18,6 +18,10 @@
 
 修法：把四个标志提升到 IIFE 顶层声明，`refreshStatus()` 内改为纯赋值。
 
+**未找到存档时打印本机绝对路径**
+
+`main.py` 原来在「没找到 .sav」提示里用 `os.path.abspath(".")` 拼示例路径，会暴露打包机/用户的用户名目录。已改为通用文案「把 game_data.sav 放到 botw_lab.exe 所在的文件夹即可」。
+
 ### ✨ 新增
 
 「🎯 一键导出」在本地服务模式下把四份内容直接覆盖回 `backups/<日期>/`：`game_data.sav.json`、`inventory.json`、`horses.json`、`position.json`。新增 `POST /__botw_write` 端点与 `_safe_write_target()` 白名单校验（目录必须落在 `backups/` 之下，纯文件名，请求体上限 64 MB，仅监听 `127.0.0.1`）。

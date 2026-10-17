@@ -32,8 +32,10 @@ import main as m  # noqa: E402  （import 时会打印程序横幅，属正常�
 # ★ V12.3：目录重组后，项目根 = core/ 的上一级；存档可能在根目录或 backups/ 里
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _SKIP = (".venv", "site-packages", "__pycache__", ".git")
-DEFAULT_SAV = os.path.join(BASE_DIR, "2026-09-30", "game_data.sav")
-if not os.path.isfile(DEFAULT_SAV):
+# ★ V13.9：允许用 BOTW_TEST_SAV 指定夹具 —— 清理个人存档后，回归不必再往项目里放 .sav
+_ENV_SAV = os.environ.get("BOTW_TEST_SAV")
+DEFAULT_SAV = _ENV_SAV or os.path.join(BASE_DIR, "2026-09-30", "game_data.sav")
+if not _ENV_SAV and not os.path.isfile(DEFAULT_SAV):
     # 基准档被流程移走（SAV 会挪进日期文件夹）→ 自动改用最新的 .sav
     cands = [os.path.join(r, f) for r, ds, fs in os.walk(BASE_DIR)
              if not any(s in r.split(os.sep) for s in _SKIP)
@@ -207,6 +209,7 @@ def main_test(argv=None):
     if not os.path.isfile(sav):
         print(f"❌ 找不到 SAV：{sav}")
         print("   用法：python test_position.py [game_data.sav 路径] [--strict-baseline]")
+        print("   或设环境变量 BOTW_TEST_SAV=<game_data.sav 路径>（pytest 走这条）")
         return 1
 
     print("=" * 50)

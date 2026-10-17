@@ -118,7 +118,7 @@ for _stream in (sys.stdout, sys.stderr):
 #   · HTML <title> / 品牌徽章、pytest.ini 注释、刷新挑战数据.js：静态文本，改版本时同步
 # 注：代码里的「★ V11.x / V12.x / V13.0~V13.6」是**历史改动溯源标记**
 #    （表示该行改动是哪个版本引入的），按原样保留，不属于"当前版本号"。
-APP_VERSION = "V13.8"
+APP_VERSION = "V13.9"
 
 
 # ------------------------------------------------------------
@@ -142,20 +142,32 @@ def _flush_stdin():
         pass
 
 
-def wait_for_user_done():
+def wait_for_user_done(paths=None):
     """★ V13.5：编辑阶段的关键等待——必须真的等到用户回来按回车。
     先清空键盘缓冲区，再用 input() 阻塞。
-    ★ V14：若设 BOTW_AUTO_DETECT=1，则监视 JSON 文件 mtime，自动继续。"""
+    ★ V13.9：BOTW_AUTO_DETECT=1 时监视传入的 JSON 文件 mtime，自动继续。
+
+    参数 paths：要监视的 JSON 路径列表（各编辑流程自己传进来）。
+               旧版这里写的是 `[json_path] if "json_path" in dir()` —— 函数内
+               dir() 只有本函数局部名，永远取不到流程里的 json_path，
+               于是 targets 恒为空、while 循环永不退出（只能 Ctrl+C）。
+    """
     auto = os.environ.get("BOTW_AUTO_DETECT") == "1"
     if auto:
-        print("⚡ BOTW_AUTO_DETECT=1：自动检测模式，JSON 文件变化后将自动继续。")
-        print("   如需手动继续，请按 Ctrl+C 中断。")
+        targets = [p for p in (paths or []) if p and os.path.isfile(p)]
+        print("⚡ BOTW_AUTO_DETECT=1：自动检测模式，以下 JSON 变化后自动继续：")
+        if targets:
+            for t in targets:
+                print("     •", os.path.basename(t))
+        else:
+            print("     （没有可监视的 JSON —— 立即按任意键继续，或 Ctrl+C 中断）")
         _flush_stdin()
         import time as _time
-        targets = [json_path] if "json_path" in dir() else []
         try:
-            mtimes = {t: os.path.getmtime(t) for t in targets if os.path.isfile(t)}
+            mtimes = {t: os.path.getmtime(t) for t in targets}
             while True:
+                if not targets:
+                    break
                 _time.sleep(1.0)
                 for t in targets:
                     if os.path.isfile(t) and os.path.getmtime(t) != mtimes.get(t):
@@ -270,26 +282,59 @@ def unique_path(path):
     return cand
 
 
+class BackupError(RuntimeError):
+    """★ V13.9（P0）：备份失败专用异常。任何写回流程捕获到它都必须中止，
+    绝不允许在「备份不可用/不完整」的状态下写活档。"""
+
+
 def make_backup(src_path, tag="bak"):
-    """把 src_path 备份到 backups/，返回备份文件的绝对路径（失败抛异常）。
-    tag 例：bak / before_inventory.bak / before_position.bak"""
-    os.makedirs(BACKUP_DIR, exist_ok=True)
+    """把 src_path 备份到 backups/，返回备份文件的绝对路径。
+    tag 例：bak / before_inventory.bak / before_position.bak
+
+    ★ V13.9（P0 加固）：
+      ① 复制后逐字节校验 SHA-256，不一致视为备份失败；
+      ① 复制本身失败同样抛 BackupError（不再静默返回半截文件）；
+      ② 失败时清掉残缺副本，并抛 BackupError —— 调用方必须中止写回。"""
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+    except OSError as e:
+        raise BackupError(f"无法创建备份目录 {BACKUP_DIR}：{e}") from e
     dst = unique_path(os.path.join(BACKUP_DIR, os.path.basename(src_path) + "." + tag))
-    shutil.copy2(src_path, dst)
+    try:
+        shutil.copy2(src_path, dst)
+    except Exception as e:
+        try:
+            if os.path.exists(dst):
+                os.remove(dst)
+        except OSError:
+            pass
+        raise BackupError(f"备份复制失败（已中止写回）：{e}") from e
+    try:
+        if file_sha256(src_path) != file_sha256(dst):
+            raise BackupError("备份 SHA-256 与原文件不一致（已删除残缺副本，写回中止）")
+    except BackupError:
+        try:
+            if os.path.exists(dst):
+                os.remove(dst)
+        except OSError:
+            pass
+        raise
+    except Exception as e:
+        raise BackupError(f"备份校验失败：{e}") from e
     return dst
 
 
-def find_backup(sav_path, tag):
-    """找 sav_path 对应的备份：先看 backups/，再看存档旁边（旧版位置）。
-    返回第一个存在的路径；都没有则返回 backups/ 里的规范路径（供提示用）。"""
-    name = os.path.basename(sav_path)
-    new_dir = os.path.join(BACKUP_DIR, name + "." + tag)
-    if os.path.exists(new_dir):
-        return new_dir
-    legacy = sav_path + "." + tag
-    if os.path.exists(legacy):
-        return legacy
-    return new_dir
+def restore_from_backup(sav_path, backup_path):
+    """★ V13.9（P0）：从备份恢复 sav_path，并校验恢复后的 SHA-256 与备份一致。
+    返回 True 表示恢复且校验通过；失败抛 BackupError（调用方须提示手动恢复）。"""
+    shutil.copy2(backup_path, sav_path)
+    if file_sha256(sav_path) != file_sha256(backup_path):
+        raise BackupError("恢复后 SHA-256 与备份不一致，请手动把备份覆盖回去")
+    return True
+
+
+# ★ V13.9（清理）：旧版 find_backup() 已删除 —— 全项目从未被调用（死代码），
+#   备份查找统一走 make_backup() 的返回值 + backups/ 目录内的 .bak 命名约定。
 
 
 # ------------------------------------------------------------
@@ -317,13 +362,21 @@ def _savdata_names(list_id):
                 if os.path.isfile(cand):
                     path = cand
                     break
-        with open(path, "r", encoding="utf-8") as f:
-            table = json.load(f)
-        # 每张表按存档文件名分组，合并成 哈希→名称 总表（键冲突极少，直接覆盖）
-        merged = {}
-        for group in table.values():
-            if isinstance(group, dict):
-                merged.update(group)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                table = json.load(f)
+            # 每张表按存档文件名分组，合并成 哈希→名称 总表（键冲突极少，直接覆盖）
+            merged = {}
+            for group in table.values():
+                if isinstance(group, dict):
+                    merged.update(group)
+        except Exception as e:
+            # ★ V13.9（收尾）：字段表只是「取名字」用的，缺了不该让整个导出失败。
+            #   旧版这里直接抛异常 → 回退到本机必崩的 C++ exe → 流程彻底走死。
+            #   现在降级为 Unknown_<哈希>：数值照样能改、能写回，只是网页里看不到字段名。
+            print(f"⚠️ 字段表 {fname} 读取失败：{e}")
+            print("   本次导出改用 Unknown_<哈希> 作为字段名（数值仍可正常修改与写回）。")
+            return {}
         _SAVDATA_NAME_CACHE[list_id] = merged
     return _SAVDATA_NAME_CACHE[list_id]
 
@@ -380,8 +433,23 @@ def python_json_to_sav(json_path, sav_path):
         out += struct.pack(">II", h, v)
     out += b"\xff\xff\xff\xff"
 
-    with open(sav_path, "wb") as f:
-        f.write(out)
+    # ★ V13.9（P0）：先写临时文件、校验字节数后原子替换，
+    #   磁盘满/断电时绝不留下"写一半"的活档
+    tmp = sav_path + ".writetmp"
+    try:
+        with open(tmp, "wb") as f:
+            f.write(out)
+            f.flush()
+            os.fsync(f.fileno())
+        if os.path.getsize(tmp) != len(out):
+            raise IOError("临时文件字节数不一致，拒绝替换活档")
+        os.replace(tmp, sav_path)
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
     return len(out)
 
 
@@ -563,14 +631,73 @@ import urllib.parse
 
 _HTTP_SERVER = None  # 保持引用，进程退出前不回收
 _HTTP_PORT = None     # ★ V13.6：连同端口一起记住（旧版第二次调用会因解包失败而崩）
+_HTTP_TOKEN = None    # ★ V13.9（P1）：写端点授权令牌（每次启动随机生成，只在本机 URL 里出现）
 
 _MAX_WRITE_BYTES = 64 * 1024 * 1024   # ★ 新增：单次写回上限（savdata JSON 可能好几 MB）
+
+# ★ V13.9（P1）：/__botw_write 的文件名白名单。
+#   ★ V13.9（审查修复）：旧版正则只放行 game_data/caption/option 三个固定存档名，
+#     用户把存档改名（game_data - 副本.sav → game_data - 副本.sav.json）后
+#     「一键导出」会被 400 拒绝、静默降级成浏览器下载（修改只落在 Downloads）。
+#     现改为「文件名规则」判定：必须是 *.sav.json 或三个固定工作文件之一。
+def _safe_write_name_ok(name):
+    """写端点文件名白名单：只收 `<任意存档名>.sav.json` 与 inventory/horses/position.json。"""
+    if not name or name in (".", "..") or len(name) > 128:
+        return False
+    if "/" in name or "\\" in name or "\x00" in name:
+        return False
+    if not name.lower().endswith(".json"):
+        return False
+    base = name[:-5]                      # 去掉 .json
+    if base.lower().endswith(".sav"):     # 存档名.json（存档名本身以 .sav 结尾）
+        return True
+    return base.lower() in ("inventory", "horses", "position")
+
+
+# 允许携带写令牌的页面来源（Origin / Referer 前缀）
+def _allowed_write_origins():
+    ports = {_HTTP_PORT} if _HTTP_PORT else set()
+    out = set()
+    for p in ports:
+        out.add(f"http://127.0.0.1:{p}")
+        out.add(f"http://localhost:{p}")
+        out.add(f"http://[::1]:{p}")
+    return out
+
+
+def _check_write_auth(headers):
+    """★ V13.9（P1）：写端点三重校验，全部通过才返回 None，否则返回错误文案。
+      ① 令牌：X-Botw-Token 必须与本进程随机令牌一致（常数时间比较）；
+      ② 来源：若带 Origin/Referer，必须来自本服务自己的 http://127.0.0.1/localhost 端口；
+      ③ 无 Origin 的非浏览器客户端（如 curl）只有令牌正确才放行。
+    浏览器跨站页面发 POST 必带 Origin —— ② 就是 CSRF 闸。"""
+    import hmac
+    import secrets
+    tok = headers.get("X-Botw-Token", "") or ""
+    if not _HTTP_TOKEN or not tok or not hmac.compare_digest(tok, _HTTP_TOKEN):
+        return "写回令牌缺失或不正确（请通过终端启动器打开的编辑器页面操作）"
+    origin = headers.get("Origin")
+    referer = headers.get("Referer")
+    probe = origin or referer
+    if probe:
+        allowed = _allowed_write_origins()
+        # Origin 形如 http://127.0.0.1:1234；Referer 还要再剥掉路径
+        base = probe.rstrip("/")
+        if not origin and "://" in probe:
+            pr = urllib.parse.urlparse(probe)
+            base = f"{pr.scheme}://{pr.netloc}"
+        if base not in allowed:
+            return "请求来源不在白名单（只接受本机编辑器页面）"
+    return None
 
 
 def _safe_write_target(dir_param, name):
     """★ 新增：把网页传来的 (dir, name) 解析成绝对路径，并做白名单校验。
 
-    只允许写进 BASE_DIR/backups 之下；name 必须是纯文件名（不许带路径分隔符）。
+    只允许写进 BASE_DIR/backups 的**子目录**（日期目录）下；name 必须是纯文件名。
+    ★ V13.9（审查修复）：旧版只做 commonpath 判定，dir="backups"（或
+      "backups/../backups"）与 backups 根相等也会被放行 —— 现在明确拒绝
+      “落在 backups 根”这一种情况。
     任一条件不满足就抛 ValueError，由 do_POST 转成错误响应。
     """
     name = (name or "").strip()
@@ -585,6 +712,8 @@ def _safe_write_target(dir_param, name):
     backups_root = os.path.realpath(BACKUP_DIR)
     if os.path.commonpath([target_dir, backups_root]) != backups_root:
         raise ValueError("只允许写 backups/ 之下的目录：" + rel)
+    if target_dir == backups_root:
+        raise ValueError("必须写进 backups/ 的日期子目录（不允许直接写 backups 根）：" + rel)
     os.makedirs(target_dir, exist_ok=True)
     return os.path.join(target_dir, name)
 
@@ -617,6 +746,11 @@ class _SilentHTTPHandler(http.server.SimpleHTTPRequestHandler):
             if urllib.parse.urlparse(self.path).path != "/__botw_write":
                 self.send_error(404, "Not Found")
                 return
+            # ★ V13.9（P1）：授权闸放在读请求体之前，未授权请求直接 403
+            auth_err = _check_write_auth(self.headers)
+            if auth_err:
+                self._reply_json(403, {"ok": False, "error": auth_err})
+                return
             try:
                 length = int(self.headers.get("Content-Length") or 0)
             except (TypeError, ValueError):
@@ -647,6 +781,10 @@ class _SilentHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 if not isinstance(content, str):
                     errors.append(name + "：content 不是字符串")
                     continue
+                # ★ V13.9（审查修复）：文件名白名单改为规则判定（*.sav.json + 三个工作文件）
+                if not _safe_write_name_ok(name):
+                    errors.append(name + "：文件名不在白名单（应为 <存档名>.sav.json 或 inventory/horses/position.json）")
+                    continue
                 try:
                     target = _safe_write_target(dir_param, name)
                     with open(target, "w", encoding="utf-8") as f:
@@ -655,14 +793,19 @@ class _SilentHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 except Exception as e:
                     errors.append(name + "：" + str(e))
 
-            if errors and not written:
-                self._reply_json(400, {"ok": False, "written": written,
-                                       "errors": errors, "dir": dir_param})
+            # ★ V13.9（审查修复）：响应语义收紧 —— 旧版「有一个成功就一律 200 + ok:true」，
+            #   前端会把 errors 里的失败文件也标记成“已导出”，既不写回也不下载（静默丢修改）。
+            #   现在：每个文件的成功/失败都在 written / errors 里逐个交代，
+            #   ok 只在「全部成功」时为 true；整批失败仍是 400。
+            reply = {"ok": (not errors), "written": written, "errors": errors, "dir": dir_param}
+            if not written:
+                self._reply_json(400, reply)
             else:
-                self._reply_json(200, {"ok": True, "written": written,
-                                       "errors": errors, "dir": dir_param})
+                self._reply_json(200, reply)
             for nm in written:
                 print("✓ 网页写回：" + (dir_param or ".") + "/" + nm)
+            for err in errors:
+                print("⚠️ 网页写回失败：" + err)
         except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
             pass
         except Exception as e:
@@ -686,10 +829,14 @@ class _SilentHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def start_local_server():
-    """在 BASE_DIR 根目录起一个临时 HTTP 服务，返回 (server, port)。"""
-    global _HTTP_SERVER, _HTTP_PORT
+    """在 BASE_DIR 根目录起一个临时 HTTP 服务，返回 (server, port)。
+    ★ V13.9（P1）：每次启动生成随机写令牌（_HTTP_TOKEN），
+    只随编辑器 URL 传给本机浏览器，写端点据此拒绝未授权请求。"""
+    global _HTTP_SERVER, _HTTP_PORT, _HTTP_TOKEN
     if _HTTP_SERVER is not None:
         return _HTTP_SERVER, _HTTP_PORT
+    import secrets as _secrets
+    _HTTP_TOKEN = _secrets.token_urlsafe(32)
     handler = _SilentHTTPHandler
     # 端口 0 = 系统自动分配空闲端口
     _HTTP_SERVER = socketserver.TCPServer(("127.0.0.1", 0), handler)
@@ -721,6 +868,8 @@ def open_editor_auto(backup_dir=None, files=None):
     rel = os.path.relpath(HTML_FILE, BASE_DIR).replace("\\", "/")
     url = f"http://127.0.0.1:{port}/{urllib.parse.quote(rel)}"
     params = ["auto=1"]
+    if _HTTP_TOKEN:
+        params.append("token=" + urllib.parse.quote(_HTTP_TOKEN))
     if backup_dir:
         d = os.path.relpath(backup_dir, BASE_DIR).replace("\\", "/")
         params.append("dir=" + urllib.parse.quote(d))
@@ -909,6 +1058,19 @@ def run_export(sav_file):
         print(f"🎉 SAV → JSON 成功！ {size:,} 字节")
         return json_file
 
+    # ★ V13.9（收尾）：说明为什么失败，而不是只丢一句「未成功」。
+    #   0xC0000409 = 上游 exe 导出路径在本机必然崩溃（与存档内容无关，短路径同样复现）。
+    if (result.returncode & 0xFFFFFFFF) == 0xC0000409:
+        print("ℹ️ 诊断：上游 C++ 转换器在导出阶段崩溃（0xC0000409，与存档数据无关）。")
+        print("   SAV → JSON 实际以 Python 内置转换器为准；若它也同时失败，")
+        print("   请保留原档并把上面的报错信息反馈作者，不要反复重试。")
+    try:
+        if os.path.isfile(json_file) and os.path.getsize(json_file) == 0:
+            os.remove(json_file)
+            print("   已删除 C++ 留下的空 JSON（避免被后续流程误用）。")
+    except OSError:
+        pass
+
     print("⚠️ SAV → JSON 未成功。")
     return None
 
@@ -954,6 +1116,25 @@ def validate_savdata_json(json_file):
     if n < min_entries:
         return False, f"savdata 只有 {n} 条（该类型正常应 ≥ {min_entries} 条），可能导出坏了"
 
+    # ★ V13.9（审查修复）：条数必须与目标 SAV 的原档一致。
+    #   旧版只看文件名给下限，存档一改名（或 caption/option 被误判）保护就退化成「≥10 条」——
+    #   一个截断的 JSON 也能过闸并把整份存档覆盖成 10 条。
+    #   正常流程（改值不改结构）两者必然相等；要用它做非常规注入请显式设
+    #   BOTW_ALLOW_ENTRY_MISMATCH=1。
+    sav_path = json_file[:-5] if json_file.lower().endswith(".json") else json_file
+    if os.path.isfile(sav_path) and os.environ.get("BOTW_ALLOW_ENTRY_MISMATCH") != "1":
+        try:
+            with open(sav_path, "rb") as f:
+                raw = f.read()
+            n_sav = (len(raw) - 16) // 8
+        except OSError as e:
+            return False, f"读取目标 SAV 失败（无法核对条数）：{e}"
+        if n_sav > 0 and n != n_sav:
+            return False, (f"savdata 条数与原档不一致：JSON {n} 条 vs "
+                           f"{os.path.basename(sav_path)} {n_sav} 条。\n"
+                           f"   正常流程只改值、不改结构，两者必须相同。\n"
+                           f"   若确实要按新条数写回，请设环境变量 BOTW_ALLOW_ENTRY_MISMATCH=1 后重试。")
+
     return True, None
 
 
@@ -988,8 +1169,11 @@ def run_import(json_file):
             backup_path = make_backup(sav_path, "bak")
             print("✓ 已备份原 SAV →", os.path.relpath(backup_path, BASE_DIR))
         except Exception as e:
-            print("⚠️ 备份失败（继续导入）：", e)
-            backup_path = None
+            # ★ V13.9（P0）：备份失败即中止，绝不"没备份也继续写"——
+            #   旧版这里打印"⚠️ 备份失败（继续导入）"后照写不误，是最高风险路径。
+            print("❌ 备份失败，已中止导入（存档未动）：", e)
+            print("   请检查 backups/ 目录权限与磁盘剩余空间，修好后重试。")
+            return False
 
     print()
     print("开始 JSON → SAV 转换")
@@ -1018,6 +1202,8 @@ def run_import(json_file):
     if ok:
         print("🎉 JSON → SAV 成功！")
     else:
+        if (result.returncode & 0xFFFFFFFF) == 0xC0000409:
+            print("ℹ️ 诊断：上游 C++ 转换器在写入阶段崩溃（0xC0000409），SAV 未被修改。")
         print("⚠️ JSON → SAV 未成功。")
     return ok
 
@@ -1382,6 +1568,12 @@ def add_item_to_sav(sav_path, item_name, quantity=1, target_slot=None):
     # 点亮所有权旗标
     if isget_pos is not None:
         struct.pack_into(">I", data, isget_pos, 1)
+    else:
+        # ★ V13.9（审查修复）：名字在字段表里找不到对应的 IsGet_<name> 时，
+        #   旧版完全静默 —— 加进去就是“幽灵物品”（游戏里不显示、也拿不到）。
+        #   这里给出明确警告（不阻断：仍可能是字段表缺条目）。
+        print(f"⚠️ 物品 {item_name} 在 savdata 字段表里没有对应的 IsGet 旗标，"
+              f"可能不会在游戏里显示（幽灵物品）。建议核对拼写或用图鉴/快速添加。）")
 
     with open(sav_path, "wb") as f:
         f.write(data)
@@ -2142,8 +2334,10 @@ def write_position_to_sav(sav_path, pos_json):
             slots[h] += 1
         pos += 8
 
-    if slots[HASH_PLAYER_SAVE_POS] != 3:
-        raise ValueError(f"SAV 中 PlayerSavePos 条目数异常（{slots[HASH_PLAYER_SAVE_POS]}，应为 3），拒绝写入")
+    # ★ V13.9（审查修复）：旧版要求「恰好 3 条」，多一条就整条功能拒绝写入；
+    #   现在只要求「至少 3 条」，写入始终只落在前 3 条（x/y/z）上。
+    if slots[HASH_PLAYER_SAVE_POS] < 3:
+        raise ValueError(f"SAV 中 PlayerSavePos 条目数不足（{slots[HASH_PLAYER_SAVE_POS]}，至少需 3），拒绝写入")
     if pos_json.get("angle") is not None and slots[HASH_PLAYER_SAVE_ANGLE] < 1:
         raise ValueError("SAV 中找不到 PlayerSavePosAngleYDegree，拒绝写入朝向")
 
@@ -2288,11 +2482,10 @@ def do_full_cycle():
         print("  ① 确认 savdata JSON 已自动导入（V13.6 起页面打开即加载）")
         print("     若没有自动导入：点「📂 导入 JSON」选择 " + json_path)
         print("  ② 修改内容")
-        print("  ③ 勾选顶部「用原文件名」")
-        print("  ④ 点顶部「💾 导出 JSON」")
-        print("  ⑤ 保存到：" + json_dir)
+        print("  ③ 点顶部「🎯 一键导出（自动写回）」—— 直接写回本目录，终端立刻能感知")
+        print("     （要手动另存也可以点「💾 导出 JSON」，但下载到 Downloads 的文件终端读不到）")
+        print("  ④ 目标目录：" + json_dir)
         print("     文件名：" + json_name)
-        print("     覆盖原文件")
         print()
 
         pause("完成后回到这里按回车...")
@@ -2307,11 +2500,11 @@ def do_full_cycle():
             print("⚠️  JSON 内容没变（SHA-256 一致）。")
             print("   可能：忘了导出 / 没保存到正确位置 / 没勾「用原文件名」")
             print()
-            # ★ V13.0：主动去 Downloads 找刚导出的文件
-            if offer_recover_from_downloads(json_path):
-                if file_sha256(json_path) != hash_before:
-                    print("✓ Downloads 里的文件已拷回，继续流程。")
-                    break
+            # ★ V13.0 / ★ V13.9：主动去 Downloads 找刚导出的文件（统一走多文件找回入口）
+            offer_recover_missing([(json_path, hash_before, "savdata JSON")], tag="JSON 未变化")
+            if file_sha256(json_path) != hash_before:
+                print("✓ Downloads 里的文件已拷回，继续流程。")
+                break
             c = input("[y] 仍然继续  [r] 回去重新编辑  [n] 放弃：").strip().lower()
             if c == "y":
                 break
@@ -2363,7 +2556,7 @@ def do_inventory_edit():
         pause()
         return
 
-    print(f"✓ 读到 {len(inventory)} 个物品")
+    print(f"✓ 读到 {sum(1 for it in inventory if '_capacity' not in it)} 个物品")
 
     with open(inv_json, "w", encoding="utf-8") as f:
         json.dump(inventory, f, ensure_ascii=False, indent=2)
@@ -2421,12 +2614,10 @@ def do_inventory_edit():
     print("     若没有自动导入：点「📂 读取 inventory.json」选择 " + inv_json)
     print("  ③ 修改数量 / 修饰符，或添加 / 删除物品")
     print("     （可选）切「🐴 马匹」读取 horses.json，换马鞍/缰绳/鬃毛/名字")
-    print("     （可选）切「🐴 马匹」改完后点「💾 导出 horses.json」覆盖")
     print("     （可选）切「📍 位置」读取 position.json，查看坐标/最近地点或传送")
-    print("  ④ 点「💾 保存修改」（直接写入选定文件）或「💾 导出 inventory.json」")
-    print("  ⑤ 保存到：" + work_dir)
-    print("     文件名：inventory.json")
-    print("     覆盖原文件")
+    print("  ④ 改完点顶部「🎯 一键导出（自动写回）」—— 直接写回本目录，终端立刻能感知")
+    print("     （也可用「💾 保存修改 / 导出 inventory.json」手动另存，但终端读不到 Downloads）")
+    print("  ⑤ 目标目录：" + work_dir)
     print()
 
     pause("完成后回到这里按回车...")
@@ -2436,12 +2627,22 @@ def do_inventory_edit():
         pause()
         return
 
-    if file_sha256(inv_json) == inv_hash_before:
+    # ★ V13.9（审查修复）：变化检测覆盖 inventory + horses + position 三个文件，
+    #   并在写回前统一做一次 Downloads 找回（旧版只认 inventory，
+    #   horses/position 改了但只下载到 Downloads 时会被静默忽略）。
+    changed_any = any(_json_changed(p, h) for p, h in (
+        (inv_json, inv_hash_before), (horses_json, horses_hash_before), (pos_json, pos_hash_before)))
+    if not changed_any:
         print()
-        print("⚠️  inventory.json 没变化。")
-        # ★ V13.0：主动去 Downloads 找刚导出的文件
-        offer_recover_from_downloads(inv_json)
-        if file_sha256(inv_json) == inv_hash_before:
+        print("⚠️  inventory / horses / position 三个 JSON 都没有变化。")
+        offer_recover_missing([
+            (inv_json, inv_hash_before, "inventory.json"),
+            (horses_json, horses_hash_before, "horses.json"),
+            (pos_json, pos_hash_before, "position.json"),
+        ], tag="工作目录里没有任何改动")
+        changed_any = any(_json_changed(p, h) for p, h in (
+            (inv_json, inv_hash_before), (horses_json, horses_hash_before), (pos_json, pos_hash_before)))
+        if not changed_any:
             c = input("[y] 仍然继续  [r] 重新编辑（放弃本次） [n] 退出：").strip().lower()
             if c != "y":
                 pause()
@@ -2455,7 +2656,13 @@ def do_inventory_edit():
         pause()
         return
 
-    backup = make_backup(sav, "before_inventory.bak")
+    # ★ V13.9（P0）：备份失败即中止，绝不在无备份状态下写回
+    try:
+        backup = make_backup(sav, "before_inventory.bak")
+    except Exception as e:
+        print(f"❌ 备份失败，已中止写回（存档未动）：{e}")
+        pause()
+        return
     print(f"✓ 已备份原 SAV → {os.path.relpath(backup, BASE_DIR)}")
 
     try:
@@ -2469,11 +2676,12 @@ def do_inventory_edit():
         print(f"❌ 写回失败：{e}")
         # ★ V11.4：写回是删→加→改名→改值→点旗标→写修饰符的多阶段过程，
         #   中途失败会留下"改一半"的存档——自动从写回前的备份恢复
+        # ★ V13.9（P0）：恢复后校验 SHA-256，不一致要喊人，不许假装成功
         try:
-            shutil.copy2(backup, sav)
-            print("✓ 已自动从备份恢复原 SAV（本次写回作废）")
+            restore_from_backup(sav, backup)
+            print("✓ 已自动从备份恢复原 SAV（SHA-256 校验一致，本次写回作废）")
         except Exception as re_err:
-            print(f"❌ 自动恢复失败，请手动把备份覆盖回去：{re_err}")
+            print(f"❌ 自动恢复失败或校验不一致，请手动把备份覆盖回去：{re_err}")
         print(f"   备份：{backup}")
         pause()
         return
@@ -2553,7 +2761,7 @@ def do_full_both():
         pause()
         return
 
-    print(f"✓ 读到 {len(inventory)} 个物品")
+    print(f"✓ 读到 {sum(1 for it in inventory if '_capacity' not in it)} 个物品")
 
     with open(inv_json, "w", encoding="utf-8") as f:
         json.dump(inventory, f, ensure_ascii=False, indent=2)
@@ -2613,11 +2821,12 @@ def do_full_both():
         print("  ① 确认 savdata JSON 已自动导入（V13.6 起页面打开即加载）")
         print("     若没有自动导入：点「📂 导入 JSON」选择 " + json_path)
         print("  ② 修改内容（IsGet、任务、心心、卢比、挑战等）")
-        print("  ③ 点「💾 导出 JSON」覆盖原文件（文件名已自动匹配）")
+        print("  ③ 改完点顶部「🎯 一键导出（自动写回）」—— 四个 JSON 一起写回本目录")
+        print("     终端立刻能感知；「💾 导出 JSON」只是手动另存，终端读不到 Downloads")
         print()
         print("【改背包】（可选）")
         print("  ④ 切到「🎒 背包」tab → inventory.json 已自动导入（没有就点「📂 读取」）")
-        print("  ⑤ 修改后点「💾 保存修改」覆盖 inventory.json")
+        print("  ⑤ 改完同样点「🎯 一键导出（自动写回）」（不必单独保存背包文件）")
         print()
         print("【马匹 / 位置】（可选）")
         if horses_json:
@@ -2628,7 +2837,10 @@ def do_full_both():
         print("💡 导入时「用原文件名」已自动勾选，导出时直接覆盖即可。")
         print()
 
-        wait_for_user_done()   # ★ V13.5：真·等待，不会被残留回车跳过
+        # ★ V13.5：真·等待，不会被残留回车跳过
+        # ★ V13.9（审查修复）：把四个 JSON 传给等待函数 —— BOTW_AUTO_DETECT=1
+        #   时才能真正监视它们的 mtime（旧版传不进任何路径，死循环）。
+        wait_for_user_done(paths=[json_path, inv_json, horses_json, pos_json])
 
         sav_ok = os.path.isfile(json_path)
         inv_ok = os.path.isfile(inv_json)
@@ -2649,26 +2861,33 @@ def do_full_both():
             pause()
             return
 
-        sav_changed = file_sha256(json_path) != savdata_hash_before
-        inv_changed = file_sha256(inv_json) != inv_hash_before
+        # ★ V13.9（审查修复）：写回前统一做一次 Downloads 找回 —— 覆盖全部四个文件。
+        #   浏览器把「导出」放进 Downloads（无 FSApi 的浏览器 / 用户取消另存为）时，
+        #   终端原本只在「savdata + inventory 都没变」时才去找，horses/position
+        #   更是完全没有找回入口 —— 用户改了也会被静默跳过。
+        offer_recover_missing([
+            (json_path, savdata_hash_before, "savdata JSON"),
+            (inv_json, inv_hash_before, "inventory.json"),
+            (horses_json, horses_hash_before, "horses.json"),
+            (pos_json, pos_hash_before, "position.json"),
+        ], tag="四个 JSON 在工作目录里都没有变化")
+
+        sav_changed = _json_changed(json_path, savdata_hash_before)
+        inv_changed = _json_changed(inv_json, inv_hash_before)
+        horse_changed = _json_changed(horses_json, horses_hash_before)
+        pos_changed = _json_changed(pos_json, pos_hash_before)
 
         print()
         print("变更检测：")
         print(f"  savdata JSON：    {'✓ 有修改' if sav_changed else '— 无修改'}")
         print(f"  inventory.json：  {'✓ 有修改' if inv_changed else '— 无修改'}")
+        print(f"  horses.json：     {'✓ 有修改' if horse_changed else '— 无修改'}")
+        print(f"  position.json：   {'✓ 有修改' if pos_changed else '— 无修改'}")
         print()
 
-        if not sav_changed and not inv_changed:
-            print("⚠️  两个 JSON 都没变化。")
+        if not (sav_changed or inv_changed or horse_changed or pos_changed):
+            print("⚠️  四个 JSON 都没有变化。")
             print()
-            # ★ V13.0：主动去 Downloads 找刚导出的文件
-            offer_recover_from_downloads(json_path)
-            offer_recover_from_downloads(inv_json)
-            sav_changed = file_sha256(json_path) != savdata_hash_before
-            inv_changed = file_sha256(inv_json) != inv_hash_before
-            if sav_changed or inv_changed:
-                print(f"✓ 已从 Downloads 找回：savdata={'有修改' if sav_changed else '无'}，inventory={'有修改' if inv_changed else '无'}")
-                break
             c = input("[y] 仍然继续 [r] 回去重新编辑 [n] 放弃：").strip().lower()
             if c == "y":
                 break
@@ -2682,7 +2901,7 @@ def do_full_both():
     if sav_changed:
         print()
         print("=" * 55)
-        print(" 第一步：应用 savdata 修改（C++ Import）")
+        print(" 第一步：savdata 写回（JSON → SAV）")
         print("=" * 55)
         ok = run_import(json_path)
         if not ok:
@@ -2704,7 +2923,13 @@ def do_full_both():
             pause()
             return
 
-        backup = make_backup(sav_path, "before_inventory.bak")
+        # ★ V13.9（P0）：备份失败即中止，绝不在无备份状态下写回
+        try:
+            backup = make_backup(sav_path, "before_inventory.bak")
+        except Exception as e:
+            print(f"❌ 备份失败，已中止背包写回（存档未动）：{e}")
+            pause()
+            return
         print(f"✓ 已备份 → {os.path.relpath(backup, BASE_DIR)}")
 
         try:
@@ -2717,11 +2942,12 @@ def do_full_both():
         except Exception as e:
             print(f"❌ 写回失败：{e}")
             # ★ V11.4：中途失败自动从备份恢复，避免"改一半"的存档
+            # ★ V13.9（P0）：恢复后校验 SHA-256，不一致要喊人
             try:
-                shutil.copy2(backup, sav_path)
-                print("✓ 已自动从备份恢复原 SAV（本次写回作废）")
+                restore_from_backup(sav_path, backup)
+                print("✓ 已自动从备份恢复原 SAV（SHA-256 校验一致，本次写回作废）")
             except Exception as re_err:
-                print(f"❌ 自动恢复失败，请手动把备份覆盖回去：{re_err}")
+                print(f"❌ 自动恢复失败或校验不一致，请手动把备份覆盖回去：{re_err}")
             print(f"   备份：{backup}")
             pause()
             return
@@ -2733,6 +2959,17 @@ def do_full_both():
         if n_del > 0: print(f"✓ 删除 {n_del} 个物品")
         if n_mod > 0: print(f"✓ 修饰符更新 {n_mod} 处")
         if n_name > 0: print(f"✓ 护甲升星换形 {n_name} 件（点亮旗标 {n_flaglit} 个）")
+
+    # ★ V13.9（审查修复）：只改马匹/位置时也要有写前备份
+    #   （旧版唯一的写前备份藏在「背包有修改」分支里，单改马匹会无备份直接写）
+    if not inv_changed and (horse_changed or pos_changed):
+        try:
+            backup = make_backup(sav_path, "before_horses_pos.bak")
+            print(f"✓ 已备份 → {os.path.relpath(backup, BASE_DIR)}")
+        except Exception as e:
+            print(f"❌ 备份失败，已中止马匹/位置写回（存档未动）：{e}")
+            pause()
+            return
 
     try:
         apply_horses_json_if_changed(horses_json, horses_hash_before, sav_path)
@@ -2819,10 +3056,8 @@ def do_position_edit():
         print("  ② 确认 position.json 已自动导入（V13.6 起页面打开即加载）")
         print("     若没有自动导入：点「📂 读取 position.json」选择 " + pos_json)
         print("  ③ 查看最近地点，或改 X/Y/Z / 从地点库选「传送」")
-        print("  ④ 点「💾 导出 position.json」")
-        print("  ⑤ 保存到：" + work_dir)
-        print("     文件名：position.json")
-        print("     覆盖原文件")
+        print("  ④ 改完点顶部「🎯 一键导出（自动写回）」（或「💾 导出 position.json」手动另存）")
+        print("  ⑤ 目标目录：" + work_dir)
         print()
 
         pause("完成后回到这里按回车...")
@@ -2846,7 +3081,13 @@ def do_position_edit():
         print("✓ 检测到 position.json 已更新。")
         break
 
-    backup = make_backup(sav, "before_position.bak")
+    # ★ V13.9（P0）：备份失败即中止，绝不在无备份状态下写回
+    try:
+        backup = make_backup(sav, "before_position.bak")
+    except Exception as e:
+        print(f"❌ 备份失败，已中止写回（存档未动）：{e}")
+        pause()
+        return
     print(f"✓ 已备份原 SAV → {os.path.relpath(backup, BASE_DIR)}")
 
     try:
@@ -2968,7 +3209,8 @@ def find_recent_downloaded_json(target_name, max_age_sec=600):
 def offer_recover_from_downloads(json_path):
     """★ V13.0：当终端检测到 backups/<日期>/game_data.sav.json 没变，
     主动去 Downloads 找最近 10 分钟内导出的 JSON，让用户一键拷回。
-    命中并拷回返回 True；否则返回 False。"""
+    命中并拷回返回 True；否则返回 False。
+    ★ V13.9（审查修复）：多文件场景请优先用 offer_recover_missing()（一次询问、覆盖四个文件）。"""
     recent = find_recent_downloaded_json(json_path)
     if not recent:
         return False
@@ -2986,6 +3228,62 @@ def offer_recover_from_downloads(json_path):
         return True
     except Exception as e:
         print(f"❌ 拷回失败：{e}")
+        return False
+
+
+def offer_recover_missing(pairs, tag="工作目录里没检测到改动"):
+    """★ V13.9（审查修复）：统一的「Downloads 找回」，一次询问覆盖多个文件。
+
+    pairs：[ (json_path, hash_before, 展示名) ]。
+    只对「文件存在且 SHA-256 仍等于导入时」的项动手（已经变了的不用找），
+    去 Downloads 找最近 10 分钟内导出的同名 JSON；命中就集中列出来问一次，
+    回车 = 全部拷回。
+
+    这一步专治「浏览器把导出放进了 Downloads，终端却以为你没改」——
+    也是修复「horses.json / position.json 完全没有找回入口」的落点。
+    返回实际拷回的展示名列表；调用方拷回后要重新计算 changed。
+    """
+    pending = []
+    for path, hash_before, label in pairs:
+        if not path or hash_before is None or not os.path.isfile(path):
+            continue
+        try:
+            if file_sha256(path) != hash_before:
+                continue          # 文件已经变了，不需要找回
+        except OSError:
+            continue
+        recent = find_recent_downloaded_json(path)
+        if recent:
+            pending.append((path, label, recent[0]))
+    if not pending:
+        return []
+    print()
+    print(f"💡 {tag} —— 但在 Downloads 里发现了这些最近导出的文件：")
+    for _, label, src in pending:
+        mt = time.strftime("%H:%M:%S", time.localtime(os.path.getmtime(src)))
+        size = os.path.getsize(src)
+        print(f"   • {label}  ←  {src}  ({mt}, {size:,} 字节)")
+    c = input("是否把它们全部拷回工作目录？[回车=是 / n=否]：").strip().lower()
+    if c == "n":
+        return []
+    done = []
+    for path, label, src in pending:
+        try:
+            shutil.copy2(src, path)
+            print(f"   ✓ 已拷回 {label} ← {os.path.basename(src)}")
+            done.append(label)
+        except Exception as e:
+            print(f"   ❌ {label} 拷回失败：{e}")
+    return done
+
+
+def _json_changed(path, hash_before):
+    """path 是否存在且 SHA-256 与导入时不同（None / 缺失一律视为未变）。"""
+    if not path or hash_before is None or not os.path.isfile(path):
+        return False
+    try:
+        return file_sha256(path) != hash_before
+    except OSError:
         return False
 
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>BOTW 存档实验室 V13.8</title>
+<title>BOTW 存档实验室 V13.9</title>
 <style>
 *{box-sizing:border-box}
 :root{
@@ -57,7 +57,7 @@ input[type=text]{min-width:0}
 .tabs{display:flex;gap:2px;padding:8px 10px 0;border-bottom:1px solid var(--line);overflow-x:auto}
 .tabs::-webkit-scrollbar{height:0}
 .tab{padding:9px 16px;background:transparent;border:1px solid transparent;border-bottom:none;color:var(--fg2);cursor:pointer;border-radius:8px 8px 0 0;font-size:13px;white-space:nowrap;font-family:inherit;transition:all .12s;display:flex;align-items:center;gap:6px}
-.tab.active{background:var(--bg);border-color:var(--line);color:var(--gold);border-bottom:1px solid var(--bg);margin-bottom:-1px;font-weight:600}
+.tab.active{background:var(--bg);border-color:var(--line);color:var(--gold);border-bottom:1px solid transparent;margin-bottom:-1px;font-weight:600}
 .tab:hover:not(.active){color:var(--fg)}
 .tab .badge{font-size:10.5px;color:var(--fg3);font-weight:400}
 .tab.active .badge{color:var(--gold)}
@@ -1035,7 +1035,7 @@ button:active:not(:disabled){transform:translateY(1px) scale(.98)}
   <div class="brand">
     <div class="sheikah-eye" title="Sheikah"><div class="eyeball"></div><div class="pupil"></div><div class="line"></div></div>
     <div class="brand-name">BOTW 存档修改器</div>
-    <div class="brand-sub">Wii U 1.5.0 · V13.8</div>
+    <div class="brand-sub">Wii U 1.5.0 · V13.9</div>
   </div>
   <nav>
     <button class="tab active" data-view="home" data-title="首页">🏠 <span>首页</span></button>
@@ -1069,13 +1069,14 @@ button:active:not(:disabled){transform:translateY(1px) scale(.98)}
   <div class="topbar">
     <span class="vt" id="viewTitle">首页</span>
     <span class="ver-chip">BOTW Wii U 1.5.0</span>
+    <span class="chip" id="export-mode-chip" title="当前导出通道">导出模式：检测中…</span>
     <span class="spacer"></span>
     <div class="toolbar">
       <div class="group">
         <button id="import-all" class="primary">📦 全部一键导入</button>
         <button id="open" class="ghost">📂 导入 JSON</button>
-        <button id="export" class="primary">💾 导出 JSON</button>
-        <button id="export-all" class="primary" title="一次性导出所有已修改的 JSON（savdata/背包/马匹/位置）">💾 一键导出全部</button>
+        <button id="export" class="primary" title="手动导出：另存到指定文件（浏览器下载/另存为）">💾 导出 JSON</button>
+        <button id="export-all" class="primary" title="自动写回：一次性把所有未写回的 JSON 直接写回 backups/<日期>/（本地服务模式）；否则降级为手动下载">🎯 一键导出（自动写回）</button>
         <label class="chk"><input type="checkbox" id="useOrigName"> 用原文件名</label><span id="export-target" class="uw-text" style="font-size:11px;color:var(--fg3);margin-left:8px">导出目标：未导入</span>
       </div>
       <div class="group">
@@ -1092,8 +1093,8 @@ button:active:not(:disabled){transform:translateY(1px) scale(.98)}
   <!-- ★ V12.1：未保存修改警告横幅 -->
   <div id="unsaved-warning" class="unsaved-warning" style="display:none">
     <span class="uw-icon">⚠️</span>
-    <span class="uw-text">有未保存的修改！请点「💾 导出 JSON」覆盖原文件，否则程序无法检测到修改。</span>
-    <button class="uw-export primary" onclick="document.getElementById('export').click()">立即导出</button>
+    <span class="uw-text">有未写回的修改！推荐点「🎯 一键导出（自动写回）」直接写回工作目录（终端可感知）；手动下载到 Downloads 的改动终端读不到。</span>
+    <button class="uw-export primary" onclick="document.getElementById('export-all').click()">一键导出（自动写回）</button>
   </div>
   <div class="content">
 <div class="view active" id="view-home">
@@ -1101,7 +1102,7 @@ button:active:not(:disabled){transform:translateY(1px) scale(.98)}
     <div class="hero">
       <div class="hero-main">
         <div class="htitle">BOTW 存档修改器</div>
-        <div class="hbadges"><span class="chip gold">Wii U 1.5.0</span><span class="chip">V13.8</span><span class="chip">savdata + 背包 + 马匹 + 位置 + 挑战 + 体检</span></div>
+        <div class="hbadges"><span class="chip gold">Wii U 1.5.0</span><span class="chip">V13.9</span><span class="chip">savdata + 背包 + 马匹 + 位置 + 挑战 + 体检</span></div>
         <div class="hdesc">终端生成 JSON → 在这里编辑导出 → 终端写回。每次写回前 main.py 会自动创建 <b>.bak</b> 备份，改坏可随时还原。</div>
       </div>
     </div>
@@ -1846,20 +1847,87 @@ let invNewSeq = -1001;
 let invCapacity = null;  // ★ V11.6：背包容量（inventory.json 的 {"_capacity":{...}} 标记，写回时剥掉）
 let hData = [], hOriginal = [], hChanges = {};  // 马匹状态（声明前置，防 TDZ 隐患）
 let pData = null, pOriginal = null;             // ★ V11.5 位置状态：null = 未读取
-let exportedState = { sav: false, inv: false, horse: false, pos: false };  // 已导出标记
+/* ★ V13.9：导出状态拆成两条通道。
+   旧版只有一个 exportedState 布尔：无论「写回工作目录」还是「下载到 Downloads」
+   都算“已导出” → 「一键导出」会跳过这些文件，而终端只在“savdata+inventory 都没变”
+   时才去 Downloads 找回 → 用户改了却静默不写回（Firefox/Safari 必现）。
+   现在区分：
+     written = 已写回工作目录（backups/<日期>/，终端能看到）
+     manual  = 已手动导出（浏览器下载 / 另存为，需要用户自己搬运）
+   一键导出只跳过 written 的文件；manual 仅作提示，不阻止自动写回。 */
+let exportState = {
+  sav:   { written: false, manual: false },
+  inv:   { written: false, manual: false },
+  horse: { written: false, manual: false },
+  pos:   { written: false, manual: false },
+};
+function exReset(){ for(const k in exportState) exportState[k] = { written: false, manual: false }; }
+function exResetKey(key){ if(exportState[key]) exportState[key] = { written: false, manual: false }; }
+function exMarkWritten(key){
+  if(exportState[key]) exportState[key].written = true;
+  /* ★ V13.9：写回成功 = 更新「未写回」横幅基线（导出后横幅自动消失） */
+  bannerSetBase(key);
+}
+function exMarkManual(key){ if(exportState[key]) exportState[key].manual = true; }
+function exWritten(key){ return !!(exportState[key] && exportState[key].written); }
+function exTagText(key, label){
+  const st = exportState[key];
+  if(!st) return label;
+  if(st.written) return label + " ✓已写回";
+  if(st.manual) return label + " ↓已下载(未写回)";
+  return label + " 未导出";
+}
 /* ★ 修复：四个「已载入」标志原为 refreshStatus() 内的 const（函数局部），
    但 undoMultiTab / beforeunload / #export-all 等 IIFE 顶层代码要读它们 →
    运行时抛 ReferenceError: savLoaded is not defined，表现为按钮点击无反应。
    这里提升到 IIFE 顶层，refreshStatus() 内改为纯赋值。 */
 let savLoaded = false, invLoaded = false, horseLoaded = false, posLoaded = false;
-/* ★ V14：独立撤销栈——savdata/背包/马匹/位置各自维护 */
+/* ★ V14：独立撤销栈——savdata/背包/马匹/位置各自维护
+   ★ V13.9：每个栈的 push/undo 都调用 updateToolbar()，按钮可用性即时正确 */
 let invUndoStack = [], horseUndoStack = [], posUndoStack = [];
-function pushInvUndo(snapshot){ invUndoStack.push(snapshot); if(invUndoStack.length>50) invUndoStack.shift(); }
-function pushHorseUndo(snapshot){ horseUndoStack.push(snapshot); if(horseUndoStack.length>50) horseUndoStack.shift(); }
-function pushPosUndo(snapshot){ posUndoStack.push(snapshot); if(posUndoStack.length>50) posUndoStack.shift(); }
-function undoInventory(){ if(!invUndoStack.length){ setStatus("❌ 背包无可撤销修改。"); return; } const snap = invUndoStack.pop(); invData = JSON.parse(JSON.stringify(snap.data)); invChanges = JSON.parse(JSON.stringify(snap.changes)); invModChanges = JSON.parse(JSON.stringify(snap.modChanges)); invNameChanges = JSON.parse(JSON.stringify(snap.nameChanges)); renderInventory(); setStatus("↩️ 已撤销背包修改。"); }
-function undoHorse(){ if(!horseUndoStack.length){ setStatus("❌ 马匹无可撤销修改。"); return; } const snap = horseUndoStack.pop(); hData = JSON.parse(JSON.stringify(snap.data)); hChanges = JSON.parse(JSON.stringify(snap.changes)); renderHorses(); setStatus("↩️ 已撤销马匹修改。"); }
-function undoPosition(){ if(!posUndoStack.length){ setStatus("❌ 位置无可撤销修改。"); return; } const snap = posUndoStack.pop(); pData = JSON.parse(JSON.stringify(snap.data)); renderPosition(); setStatus("↩️ 已撤销位置修改。"); }
+function pushInvUndo(snapshot){ invUndoStack.push(snapshot); if(invUndoStack.length>50) invUndoStack.shift(); updateToolbar(); }
+function pushHorseUndo(snapshot){ horseUndoStack.push(snapshot); if(horseUndoStack.length>50) horseUndoStack.shift(); updateToolbar(); }
+function pushPosUndo(snapshot){ posUndoStack.push(snapshot); if(posUndoStack.length>50) posUndoStack.shift(); updateToolbar(); }
+/* ★ V13.9：背包快照统一构造 —— 五张表全员入栈（旧版漏了 invModValueChanges，
+   “撤销”回不去修饰强度）。所有会改 invData 的动作都必须先拍一张。 */
+function invSnapshot(){
+  return {
+    data: invData.map(x => ({ ...x })),
+    changes: { ...invChanges },
+    modChanges: { ...invModChanges },
+    modValueChanges: { ...invModValueChanges },
+    nameChanges: { ...invNameChanges },
+  };
+}
+function undoInventory(){
+  if(!invUndoStack.length){ setStatus("❌ 背包无可撤销修改。"); return; }
+  const snap = invUndoStack.pop();
+  invData = JSON.parse(JSON.stringify(snap.data));
+  invChanges = JSON.parse(JSON.stringify(snap.changes || {}));
+  invModChanges = JSON.parse(JSON.stringify(snap.modChanges || {}));
+  invModValueChanges = JSON.parse(JSON.stringify(snap.modValueChanges || {}));
+  invNameChanges = JSON.parse(JSON.stringify(snap.nameChanges || {}));
+  renderInventory();
+  updateToolbar();
+  setStatus("↩️ 已撤销背包修改（含新增/删除/批量操作）。");
+}
+function undoHorse(){
+  if(!horseUndoStack.length){ setStatus("❌ 马匹无可撤销修改。"); return; }
+  const snap = horseUndoStack.pop();
+  hData = JSON.parse(JSON.stringify(snap.data));
+  hChanges = JSON.parse(JSON.stringify(snap.changes));
+  renderHorses();
+  updateToolbar();
+  setStatus("↩️ 已撤销马匹修改。");
+}
+function undoPosition(){
+  if(!posUndoStack.length){ setStatus("❌ 位置无可撤销修改。"); return; }
+  const snap = posUndoStack.pop();
+  pData = JSON.parse(JSON.stringify(snap.data));
+  renderPos();               /* ★ V13.9：函数名是 renderPos —— 旧版写成 renderPosition()（未定义）会抛 ReferenceError */
+  updateToolbar();
+  setStatus("↩️ 已撤销位置修改。");
+}
 
 /* ============================================================
    📍 地点坐标库（★ V11.5 · 数据驱动：加地点只需往数组加一条）
@@ -2192,10 +2260,14 @@ function topProgress(pct){
 
 function setStatus(s){ statusEl.textContent = s; if(typeof refreshStatus === "function") refreshStatus(); }
 function updateToolbar(){
+  /* ★ V13.9：撤销可用性 = 四个撤销栈任一非空（savdata / 背包 / 马匹 / 位置）。
+     旧版只看 editHistory（savdata 的修改记录）——纯背包会话里按钮永远灰着，
+     V14 的独立撤销栈等于点不动。 */
   const n = editHistory.length;
-  undoBtn.disabled = n === 0;
-  undoBtn2.disabled = n === 0;
-  revertBtn.disabled = n === 0;
+  const anyUndo = n + invUndoStack.length + horseUndoStack.length + posUndoStack.length;
+  undoBtn.disabled = anyUndo === 0;
+  undoBtn2.disabled = anyUndo === 0;
+  revertBtn.disabled = n === 0;      /* 全部还原 / 清空记录都只针对 savdata */
   clearHist.disabled = n === 0;
   histBadge.textContent = n ? "(" + n + ")" : "";
   histBadge.style.color = n ? "#f0b429" : "#6e7681";
@@ -2979,6 +3051,7 @@ function codexAddToBackpack(ci){
   const dup = invData.find(x => x.name === name && !x._deleted && !x._new);
   if(dup && !confirm("背包里已经有「" + itemDisplayName(name) + "」了，仍要再添加一个？")) return;
   if(invData.filter(x => !x._deleted).length >= 420 && !confirm("⚠️ 背包已满 420 格，仍要添加？（可能失败）")) return;
+  pushInvUndo(invSnapshot());   /* ★ V13.9：新增入撤销栈 */
   invData.push({
     slot: invNewSeq--, name: name, value: qty,
     equipped: false, modifier: 0, modifier_value: 0, _new: true
@@ -3156,18 +3229,24 @@ function cuRunCheckup(){
 
       /* 6) 背包 IsGet 一致性：背包里有物品但 IsGet_<name> 未点亮 */
       if(typeof invData !== "undefined" && invData && invData.length){
-        const missing = [];
+        const missing = [];   /* 旗标存在但不是 1 */
+        const ghost = [];     /* ★ V13.9：存档里根本没有这个旗标 → 幽灵物品 */
         invData.forEach(it => {
           if(!it || !it.name || it._capacity || it._deleted) return;
           const isGet = "IsGet_" + it.name;
           if(map.has(isGet)){
             const v = map.get(isGet);
             if(Number(v) !== 1) missing.push(it.name);
+          } else {
+            ghost.push(it.name);
           }
         });
+        if(ghost.length > 0) push("bad", "❌", "背包里有幽灵物品",
+          ghost.length + " 个物品在 savdata 里没有任何 IsGet 旗标（" + ghost.slice(0,5).join(", ") + (ghost.length>5?"…":"")
+          + "）。这些名字多半是拼写错误，游戏里不会显示 —— 建议在背包里删掉后用图鉴/快速添加重新加。");
         if(missing.length > 0) push("warn", "⚠️", "背包物品 IsGet 未点亮",
           missing.length + " 个背包物品的 IsGet 旗标不是 1（" + missing.slice(0,5).join(", ") + (missing.length>5?"…":"") + "）。这些物品在游戏里可能不显示。一般由改背包时没点所有权旗标导致。");
-        else push("good", "✅", "背包所有权旗标一致", invData.filter(x=>x&&x.name&&!x._capacity&&!x._deleted).length + " 个物品的 IsGet 全部已点亮");
+        if(!missing.length && !ghost.length) push("good", "✅", "背包所有权旗标一致", invData.filter(x=>x&&x.name&&!x._capacity&&!x._deleted).length + " 个物品的 IsGet 全部已点亮");
       }
 
       /* 7) 背包容量 vs 实际数量 */
@@ -3289,16 +3368,15 @@ function renderHistory(){
   updateToolbar();
 }
 function undoMultiTab(){
-  /* 优先撤销 savdata（如果当前在首页且有 savdata 修改）*/
-  if(editHistory.length && activeView === "home" && savLoaded){
-    undoLastEdit(); return;
-  }
-  /* 否则按当前可见视图撤销 */
+  /* ★ V13.9：视图名必须与标签页 data-view 一致 —— 旧版写 "horse"/"position"，
+     而实际是 "horses"/"pos"，两个分支永不命中，撤销会打到 savdata/背包头上。 */
+  /* 优先撤销当前视图对应的那一栈 */
   if(activeView === "inventory" && invUndoStack.length){ undoInventory(); return; }
-  if(activeView === "horse" && horseUndoStack.length){ undoHorse(); return; }
-  if(activeView === "position" && posUndoStack.length){ undoPosition(); return; }
-  /* 兜底：尝试任何可用的撤销栈 */
+  if(activeView === "horses" && horseUndoStack.length){ undoHorse(); return; }
+  if(activeView === "pos" && posUndoStack.length){ undoPosition(); return; }
+  /* savdata 的修改记录在任何视图都可用（首页优先） */
   if(editHistory.length){ undoLastEdit(); return; }
+  /* 兜底：尝试任何可用的撤销栈 */
   if(invUndoStack.length){ undoInventory(); return; }
   if(horseUndoStack.length){ undoHorse(); return; }
   if(posUndoStack.length){ undoPosition(); return; }
@@ -3375,14 +3453,18 @@ document.querySelectorAll("[data-goto]").forEach(c => {
   });
 });
 
-/* ★ V14：关闭标签页前提醒未导出修改 */
+/* ★ V14：关闭标签页前提醒未导出修改
+   ★ V13.9：判定改为「真的有未写回的改动」——旧版只要载入过 position.json
+   就弹确认框（pData 恒非空），哪怕一个字都没改 */
 window.addEventListener("beforeunload", function(e){
-  const hasUnsaved = exportedState.sav === false || exportedState.inv === false || exportedState.horse === false || exportedState.pos === false || editHistory.length > 0 || invUndoStack.length > 0 || horseUndoStack.length > 0 || posUndoStack.length > 0;
-  const anyLoaded = savLoaded || invLoaded || horseLoaded || posLoaded;
-  if(anyLoaded && hasUnsaved && (editHistory.length > 0 || Object.keys(invChanges||{}).length>0 || Object.keys(hChanges||{}).length>0 || Object.keys(pData||{}).length>0)){
+  const pending = editHistory.length
+                + invPendingCount()
+                + Object.keys(hChanges || {}).length
+                + posChangedCount();
+  if(pending > 0){
     e.preventDefault();
     e.returnValue = "";
-    return "你有未导出的修改，关闭页面后将丢失。请先点「💾 导出 JSON」保存。";
+    return "你有 " + pending + " 处未写回的修改，关闭页面后将丢失。请先点「🎯 一键导出（自动写回）」或手动导出。";
   }
 });
 
@@ -3413,7 +3495,8 @@ function importSavdata(file, text){
   originalFileName = file.name;
   exportName = file.name.replace(/\.json$/i, "") + "_edited.json";
   useOrigName.checked = true;   /* ★ V12.1：自动勾选「用原文件名」，避免导出到错误位置 */
-  exportedState.sav = false;
+  exResetKey("sav");            /* ★ V13.9：只重置 savdata 自己的导出状态 */
+  bannerSetBase("sav");         /* ★ V13.9：导入即基线，此后改动才算“未写回” */
   loading = false;
   setStatus("正在建立索引……");
   setTimeout(() => {
@@ -3604,6 +3687,63 @@ function hideUnsavedWarning(){
   const el = document.getElementById("unsaved-warning");
   if(el) el.style.display = "none";
 }
+/* ★ V13.9：横幅改为「与基线不同」判定 ——
+   基线 = 该数据「导入时 / 上次成功写回时」的内容。
+   这样导出后横幅自动消失、之后再改又会亮；
+   旧版只有 savdata 编辑会拉出横幅，改了背包/马匹/位置反而不提醒。 */
+let bannerBase = { sav: "", inv: "", horse: "", pos: "" };
+function bannerSnapshot(key){
+  if(key === "sav")   return textCache || "";
+  if(key === "inv")   return invData.length ? currentInvText() : "";
+  if(key === "horse") return hData.length ? JSON.stringify(hData) : "";
+  if(key === "pos")   return pData ? exportAllPosText() : "";
+  return "";
+}
+function bannerSetBase(key){ bannerBase[key] = bannerSnapshot(key); }
+function bannerResetBase(){ bannerBase = { sav: "", inv: "", horse: "", pos: "" }; }
+function refreshUnsavedBanner(){
+  let dirty = false;
+  if(savLoaded && (textCache || "") !== bannerBase.sav) dirty = true;
+  if(!dirty && invLoaded && bannerSnapshot("inv") !== bannerBase.inv) dirty = true;
+  if(!dirty && horseLoaded && bannerSnapshot("horse") !== bannerBase.horse) dirty = true;
+  if(!dirty && posLoaded && bannerSnapshot("pos") !== bannerBase.pos) dirty = true;
+  if(dirty) showUnsavedWarning(); else hideUnsavedWarning();
+}
+/* ★ V13.9：导出拆成两条通道
+   ── ① 自动写回（推荐）：点「🎯 一键导出」→ POST /__botw_write，直接覆盖
+         backups/<日期>/ 里的四个 JSON，终端马上能看到改动。
+         仅本地服务模式（终端用 ?auto=1 打开）可用。
+   ── ② 手动导出：各「💾 导出 XXX / 保存修改」按钮 → 浏览器下载 / 另存为。
+         文件落在 Downloads，终端看不到；页面会明确提示，并只记成
+         “已下载(未写回)”—— 不再阻止之后的一键自动写回。 */
+
+/* ★ V13.9：判断当前能不能走「自动写回」通道。
+   服务端只接受 backups/ 的**日期子目录**（写 backups 根会被拒），
+   所以 dir 为空、"." 、或不在 backups/ 下时一律按手动导出处理 ——
+   不让用户白撞一次必然失败的 POST。 */
+function exportDirWritable(){
+  const raw = window.__BOTW_EXPORT_DIR__ || "";
+  if(!raw) return "";
+  if(!/^https?:$/i.test(location.protocol)) return "";
+  if(typeof fetch !== "function") return "";
+  if(!(window.__BOTW_WRITE_TOKEN__ || "")) return "";
+  const norm = String(raw).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if(!/^backups\//i.test(norm)) return "";
+  return norm;
+}
+
+function downloadBlob(blob, name){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function fallbackDownload(blob, name){ downloadBlob(blob, name); }
+function downloadText(text, name){
+  downloadBlob(new Blob([text], { type:"application/json;charset=utf-8" }), name);
+}
+
 function doExport(){
   const useOrig = useOrigName.checked && originalFileName;
   const name = useOrig ? originalFileName : (exportName || "savdata_edited.json");
@@ -3619,30 +3759,28 @@ function doExport(){
       originalFileHandle = handle;   /* 记住句柄，后续导出直接覆盖 */
       return handle.createWritable().then(w => w.write(blob).then(() => w.close()));
     }).then(() => {
-      exportedState.sav = true;
-      hideUnsavedWarning();   /* ★ V12.1：导出成功后隐藏警告 */
-      setStatus("✅ 已直接覆盖原文件 · " + (blob.size/1048576).toFixed(2) + " MB · " + editHistory.length + " 处修改 · 回到终端按回车即可继续");
-      toast("✅ 已覆盖原文件 · " + editHistory.length + " 处修改", "ok");   /* ★ V13.0 */
+      /* ★ V13.9：写进所选文件 = 视为“已写回”（建议存到 importer 的原目录） */
+      exMarkWritten("sav");
+      hideUnsavedWarning();
+      setStatus("✅ 已写入 " + name + " · " + (blob.size/1048576).toFixed(2) + " MB · " + editHistory.length
+              + " 处修改 · 回到终端按回车即可继续（若存到了别处，终端会提示“没变化”，可改用一键导出自动写回）");
+      toast("✅ 已保存 · " + editHistory.length + " 处修改", "ok");
     }).catch(err => {
       if(err.name !== "AbortError") console.error(err);
-      /* 用户取消或 API 失败，回退到传统下载 */
-      fallbackDownload(blob, name);
+      /* 用户取消或 API 失败 → 改为手动导出（下载），只记 manual，不冒充“已写回” */
+      downloadText(textCache, name);
+      exMarkManual("sav");
+      setStatus("📥 手动导出：" + name + " 已下载到 Downloads —— 终端看不到这份文件；"
+              + "请点「🎯 一键导出」（自动写回）或自行覆盖到工作目录");
     });
   } else {
-    fallbackDownload(blob, name);
-    exportedState.sav = true;
-    hideUnsavedWarning();   /* ★ V12.1：导出成功后隐藏警告 */
-    setStatus("已导出 " + name + " · " + (blob.size/1048576).toFixed(2) + " MB · " + editHistory.length + " 处修改");
-    /* ★ V14：导出后提示回终端写回 */
-    setTimeout(()=>{ setStatus("💡 提示：导出完成，请回终端按回车继续写回 SAV。"); }, 800);
+    downloadText(textCache, name);
+    exMarkManual("sav");
+    setStatus("📥 手动导出：" + name + " 已下载（" + (blob.size/1048576).toFixed(2) + " MB · " + editHistory.length
+            + " 处修改）—— 终端读不到 Downloads；请点「🎯 一键导出」（自动写回）或自行覆盖到工作目录");
+    /* ★ V14：导出后提示回终端 */
+    setTimeout(()=>{ setStatus("💡 手动导出的文件在 Downloads。要自动写回工作目录，请点「🎯 一键导出」。"); }, 1200);
   }
-}
-function fallbackDownload(blob, name){
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 document.getElementById("export").onclick = () => {
   if(!textCache){ setStatus("请先导入 JSON。"); return; }
@@ -3660,13 +3798,11 @@ document.getElementById("export").onclick = () => {
   }, 30);
 };
 
-/* ★ V15：一键导出全部已修改的 JSON
-   ------------------------------------------------------------
-   本地服务模式（?auto=1&dir=backups/<日期>）下，直接把内容 POST 给
-   core/main.py 新增的 /__botw_write 端点，就地覆盖 backups/<日期>/ 里的
-   game_data.sav.json / inventory.json / horses.json / position.json，
-   省掉「下载到 Downloads 再手工覆盖」这一步。
-   双击 file:// 打开时没有该端点，自动退回旧的浏览器下载流程。 */
+/* ★ V13.8：一键导出全部已修改的 JSON
+   ★ V13.9 重构：两条通道分开记账
+     · 只跳过「已写回」的文件；只是下载过的（manual）仍会被自动写回，不丢改动；
+     · 服务端返回 200 但列出 errors 时，按文件逐个处理：写成功的记 written，
+       失败的自动转手动下载（旧版会忽略 errors、把失败文件也标记成“已导出”）。 */
 
 function exportAllSavName(){
   /* 优先用导入时的原文件名（main.py 读回的就是它）；
@@ -3687,75 +3823,90 @@ function exportAllPosText(){
   }, null, 2);
 }
 function exportAllTargets(){
-  /* 返回待导出的 [{key,name,content}]；已导出或未载入的跳过 */
+  /* 返回待导出的 [{key,name,content}]；已「写回工作目录」或未载入的跳过。
+     ★ V13.9：只认 written —— 手动下载过（manual）的文件依旧会参与自动写回。 */
   const out = [];
-  if(savLoaded && textCache && !exportedState.sav)
+  if(savLoaded && textCache && !exWritten("sav"))
     out.push({ key:"sav", name: exportAllSavName(), content: textCache });
-  if(invLoaded && invData.length && !exportedState.inv)
+  if(invLoaded && invData.length && !exWritten("inv"))
     out.push({ key:"inv", name:"inventory.json", content: currentInvText() });
-  if(horseLoaded && hData.length && !exportedState.horse)
+  if(horseLoaded && hData.length && !exWritten("horse"))
     out.push({ key:"horse", name:"horses.json", content: JSON.stringify(hData, null, 2) });
-  if(posLoaded && pData && !exportedState.pos)
+  if(posLoaded && pData && !exWritten("pos"))
     out.push({ key:"pos", name:"position.json", content: exportAllPosText() });
   return out;
 }
-function exportAllMarkExported(keys){
-  keys.forEach(k => {
-    if(k === "sav"){ exportedState.sav = true; hideUnsavedWarning(); }
-    else if(k === "inv"){ markInvSaved(currentInvText()); }
-    else if(k === "horse"){ exportedState.horse = true; }
-    else if(k === "pos"){ exportedState.pos = true; }
-  });
-}
 function exportAllFallback(){
-  /* 旧流程：依次点四个导出按钮，走浏览器下载 */
-  if(savLoaded && textCache && !exportedState.sav) document.getElementById("export").click();
-  setTimeout(function(){
-    if(invLoaded && invData.length && !exportedState.inv) document.getElementById("inv-export").click();
-    setTimeout(function(){
-      if(horseLoaded && hData.length && !exportedState.horse) document.getElementById("horse-export").click();
-      setTimeout(function(){
-        if(posLoaded && pData && !exportedState.pos) document.getElementById("pos-export").click();
-      }, 600);
-    }, 600);
-  }, 600);
+  /* ★ V13.9：无本地服务 / 无写令牌时的兜底 —— 全部走“手动导出（下载）”，
+     一次串行发完。旧版用三层 setTimeout 连点四个导出按钮，遇到保存对话框
+     会时序错乱（框还没关，下一个文件已经下完了）。 */
+  const targets = exportAllTargets();
+  if(!targets.length) return [];
+  targets.forEach(t => { downloadText(t.content, t.name); exMarkManual(t.key); });
+  const names = targets.map(t => t.name);
+  setStatus("📥 已手动导出 " + names.length + " 个文件到 Downloads：" + names.join(", ")
+          + " · 请覆盖到 " + (window.__BOTW_EXPORT_DIR__ || "backups/<日期>/")
+          + "（或改用终端启动器打开的本地服务模式，即可自动写回）");
+  toast("📥 已下载 " + names.length + " 个 JSON（需自行搬运）", "warn");
+  return names;
 }
 
 document.getElementById("export-all").onclick = function(){
   const targets = exportAllTargets();
-  if(!targets.length){ setStatus("所有已载入数据均已导出。"); return; }
+  if(!targets.length){ setStatus("所有已载入数据均已写回或导出。"); return; }
 
-  const dir = window.__BOTW_EXPORT_DIR__;
-  const canWrite = !!dir && /^https?:$/i.test(location.protocol) && typeof fetch === "function";
-  const names = targets.map(t => t.name);
+  const dir = exportDirWritable();
 
-  if(!canWrite){
-    /* file:// 或没有导出目录 → 退回浏览器下载 */
-    setStatus("正在一键导出 " + names.join(", ") + "……");
-    exportAllFallback();
-    setTimeout(function(){
-      setStatus("🎯 一键导出全部完成 · 请回终端按回车继续写回 SAV。");
-      toast("🎯 已导出全部 JSON，请回终端继续","ok");
-    }, 2000);
+  /* ── ① 自动写回：本地服务模式 + 写令牌 + backups/ 子目录 ── */
+  if(dir){
+    setStatus("🎯 正在自动写回 " + dir + " ……（" + targets.map(t => t.name).join(", ") + "）");
+    fetch(location.origin + "/__botw_write", {
+      method: "POST",
+      headers: { "Content-Type": "application/json;charset=utf-8",
+                 "X-Botw-Token": (window.__BOTW_WRITE_TOKEN__ || "") },
+      body: JSON.stringify({ dir: dir, files: targets.map(t => ({ name: t.name, content: t.content })) })
+    }).then(function(r){ return r.json(); }).then(function(res){
+      if(!res) throw new Error("服务端返回异常");
+      const written = Array.isArray(res.written) ? res.written : [];
+      const errors  = Array.isArray(res.errors)  ? res.errors  : [];
+      if(!written.length) throw new Error((res.error || errors.join("；")) || "服务端一个文件都没写成功");
+      /* 只把服务端确认写成功的文件标记为“已写回” */
+      targets.forEach(function(t){
+        if(written.indexOf(t.name) >= 0){
+          exMarkWritten(t.key);
+          if(t.key === "sav") hideUnsavedWarning();
+          if(t.key === "inv") markInvSaved(t.content);
+        }
+      });
+      const failed = targets.filter(function(t){ return written.indexOf(t.name) < 0; });
+      if(failed.length){
+        /* ★ V13.9：部分失败（如文件名不在白名单）→ 失败项自动转手动下载，绝不静默丢弃 */
+        failed.forEach(function(t){ downloadText(t.content, t.name); exMarkManual(t.key); });
+        setStatus("⚠️ 已写回 " + written.join(", ") + "；失败 " + failed.length + " 个（已改为下载："
+                + failed.map(t => t.name).join(", ") + "）· 原因：" + errors.join("；"));
+        toast("⚠️ 部分文件写回失败，已自动改为下载", "err");
+      } else {
+        setStatus("✅ 自动写回完成：" + (res.dir || dir) + " · " + written.join(", ")
+                + " · 回终端按回车继续写回 SAV");
+        toast("🎯 已写回 " + written.length + " 个文件", "ok");
+      }
+    }).catch(function(err){
+      console.error("[BOTW] 自动写回失败：", err);
+      setStatus("❌ 自动写回失败（" + err.message + "）· 已改为手动导出（下载）");
+      toast("⚠️ 自动写回失败，改用下载", "err");
+      exportAllFallback();
+    });
     return;
   }
 
-  setStatus("正在一键写回 backups/" + dir.replace(/^backups\//,"") + " ……");
-  fetch(location.origin + "/__botw_write", {
-    method: "POST",
-    headers: { "Content-Type": "application/json;charset=utf-8" },
-    body: JSON.stringify({ dir: dir, files: targets.map(t => ({ name: t.name, content: t.content })) })
-  }).then(function(r){ return r.json(); }).then(function(res){
-    if(!res || !res.ok) throw new Error((res && (res.error || (res.errors||[]).join("; "))) || "服务端返回失败");
-    exportAllMarkExported(targets.map(function(t){ return t.key; }));
-    setStatus("✅ 已直接写回 backups/" + (res.dir || dir) + " · " + res.written.join(", ") + " · 回终端按回车继续写回 SAV");
-    toast("🎯 已写回 " + res.written.length + " 个文件到 backups", "ok");
-  }).catch(function(err){
-    console.error("[BOTW] 写回 backups 失败：", err);
-    setStatus("❌ 写回 backups 失败（" + err.message + "）· 已改用浏览器下载");
-    toast("⚠️ 写回失败，改用下载", "err");
-    exportAllFallback();
-  });
+  /* ── ② 手动导出：file:// 打开 / 未取得写令牌 ── */
+  if(!canWrite){
+    setStatus("📥 当前不是本地服务模式（" + location.protocol + "）—— 改为手动导出（下载 "
+            + targets.length + " 个文件）");
+  } else {
+    setStatus("📥 未取得本地服务写令牌 —— 改为手动导出（下载 " + targets.length + " 个文件）");
+  }
+  exportAllFallback();
 };
 revertBtn.onclick = () => {
   if(!originalCache){ setStatus("请先导入 JSON。"); return; }
@@ -3775,7 +3926,8 @@ document.getElementById("clear").onclick = () => {
   invCapacity = null;
   hData = []; hOriginal = []; hChanges = {};
   pData = null; pOriginal = null;
-  exportedState = { sav: false, inv: false, horse: false, pos: false };
+  exReset();   /* ★ V13.9：清空两通道导出状态 */
+  bannerResetBase();           /* ★ V13.9：清空横幅基线 */
   invSavedSnapshot = null;
   invFileHandle = null;
   originalFileHandle = null;   /* ★ V12.1：清空文件句柄 */
@@ -4006,6 +4158,7 @@ function quickAddItem(itemId){
   if(dup && !confirm("背包里已经有「" + itemDisplayName(itemId) + "」了，仍要再添加一个？")) return false;
   if(invData.filter(x => !x._deleted).length >= 420 && !confirm("⚠️ 背包物理槽位 420 已满，仍要添加？（可能失败）")) return false;
   const value = defaultPorchValue(name);
+  pushInvUndo(invSnapshot());   /* ★ V13.9：快速添加入撤销栈 */
   invData.push({
     slot: invNewSeq--, name: name, value: value,
     equipped: false, modifier: 0, modifier_value: 0, _new: true
@@ -4064,6 +4217,7 @@ function updateInvMeta(){
   invBadge.style.color = nChanged ? "#d29922" : "#6e7681";
   if(typeof updateInvSaveChip === "function") updateInvSaveChip();
   updateInvCapacity();
+  updateToolbar();   /* ★ V13.9：撤销按钮可用性跟着背包改动走 */
 }
 /* ★ V11.7：单张卡片的 HTML 抽成函数 —— 网格渲染与「改一张只重绘一张」共用同一份逻辑，
    不会出现两套实现走偏。源码逐字来自原 renderInventory 的循环体。 */
@@ -4078,10 +4232,14 @@ function invSlotHTML(item){
   const modChanged = isNew ? ((item.modifier || 0) !== 0) : (slot in invModChanges);
   const isWeapon = /^Weapon_(Sword|Lsword|Spear|Bow|Shield)_/.test(item.name);
 
-  /* 护甲：Value1 就是染色编号（0~15，-1/4294967295 = 不可染色） */
+  /* 护甲：Value1 就是染色编号（0~15，-1/4294967295 = 不可染色）
+     ★ V13.9：优先看 invChanges（用户刚改的染色）——旧版先看 item.dye（导入时的旧值），
+     改完下拉/数值后卡片又显示回旧染色，界面与实际写回内容不一致。 */
   const isArmor = /^Armor_/.test(item.name);
+  const invVal = (slot in invChanges) ? invChanges[slot] : null;
   const dyeVal = isArmor
-    ? ((item.dye !== undefined) ? item.dye : ((curVal >= 0 && curVal <= 15) ? curVal : -1))
+    ? ((invVal !== null) ? ((invVal >= 0 && invVal <= 15) ? invVal : -1)
+       : ((item.dye !== undefined) ? item.dye : ((curVal >= 0 && curVal <= 15) ? curVal : -1)))
     : -1;
 
   const cls = "inv-slot"
@@ -4231,8 +4389,10 @@ function startEditInv(slotEl){
       refreshInvSlot(slot);
       return;
     }
-    pushInvUndo({ data: invData.map(x=>({...x})), changes: {...invChanges}, modChanges: {...invModChanges}, nameChanges: {...invNameChanges} });
-    if(v === item.value){
+    const isNoop = (v === item.value);
+    /* ★ V13.9：值没变就不压撤销快照（旧版空点一次也记一条撤销） */
+    if(!isNoop) pushInvUndo(invSnapshot());
+    if(isNoop){
       delete invChanges[slot];
     } else {
       invChanges[slot] = v;
@@ -4260,6 +4420,7 @@ invGroups.addEventListener("click", e => {
        加错了只能整页清空重来） */
     if(item._new){
       if(!confirm("移除刚添加的「" + itemDisplayName(item.name) + "」？\n（它还没有写进存档）")) return;
+      pushInvUndo(invSnapshot());   /* ★ V13.9：删除/移除也入撤销栈 */
       invData = invData.filter(x => x !== item);
       delete invChanges[slot];
       delete invModChanges[slot];
@@ -4269,10 +4430,13 @@ invGroups.addEventListener("click", e => {
       setStatus("已移除暂存物品：" + itemDisplayName(item.name));
       return;
     }
+    /* ★ V13.9：删除/取消删除都入撤销栈（确认通过后才拍快照） */
     if(item._deleted){
+      pushInvUndo(invSnapshot());
       delete item._deleted;
     } else {
       if(!confirm("删除槽位 #" + slot + " 的 " + itemDisplayName(item.name) + "？\n（导出 JSON 后生效）")) return;
+      pushInvUndo(invSnapshot());
       item._deleted = true;
     }
     refreshInvSlot(slot);   // ★ V11.7：只重绘这一张卡片
@@ -4304,10 +4468,12 @@ invGroups.addEventListener("change", e => {
     if(n > 0xFFFFFFFF) n = 0xFFFFFFFF;
     const orig = item.modifier_value || 0;
     if(item._new){
+      if(n !== (item.modifier_value || 0)) pushInvUndo(invSnapshot());   /* ★ V13.9：入撤销栈 */
       item.modifier_value = n;  /* ★ V11.6：新物品直接写对象，随 _new 导出 */
     } else if(n === orig){
       delete invModValueChanges[slot];
     } else {
+      pushInvUndo(invSnapshot());   /* ★ V13.9：入撤销栈（撤销会一起回滚强度） */
       invModValueChanges[slot] = n;
     }
     refreshInvSlot(slot);   // ★ V11.7：只重绘这一张卡片
@@ -4326,6 +4492,7 @@ invGroups.addEventListener("change", e => {
     if(!item) return;
     const newId = starSel.value;
     if(newId !== item.name){
+      pushInvUndo(invSnapshot());   /* ★ V13.9：升星换形入撤销栈 */
       item.name = newId;
       const orig = invOriginal.find(x => x.slot === slot);
       if(orig && orig.name === newId) delete invNameChanges[slot];
@@ -4345,11 +4512,13 @@ invGroups.addEventListener("change", e => {
     const item = invData.find(x => x.slot === slot);
     if(!item) return;
     if(item._new){
+      pushInvUndo(invSnapshot());   /* ★ V13.9：入撤销栈 */
       item.value = newDye;
       item.dye = newDye;
     } else if(newDye === item.value){
       delete invChanges[slot];
     } else {
+      pushInvUndo(invSnapshot());   /* ★ V13.9：染色入撤销栈 */
       invChanges[slot] = newDye;
     }
     refreshInvSlot(slot);   // ★ V11.7：只重绘这一张卡片
@@ -4364,10 +4533,12 @@ invGroups.addEventListener("change", e => {
   if(!item) return;
   const origMod = item.modifier || 0;
   if(item._new){
+    if(newMod !== (item.modifier || 0)) pushInvUndo(invSnapshot());   /* ★ V13.9：入撤销栈 */
     item.modifier = newMod;  /* ★ V11.6：新物品直接写对象，随 _new 导出 */
   } else if(newMod === origMod){
     delete invModChanges[slot];
   } else {
+    pushInvUndo(invSnapshot());   /* ★ V13.9：修饰符入撤销栈 */
     invModChanges[slot] = newMod;
   }
   refreshInvSlot(slot);   // ★ V11.7：只重绘这一张卡片
@@ -4401,8 +4572,9 @@ function importInventory(file, text){
     invModValueChanges = {};
     invNameChanges = {};
     invNewSeq = -1001;
-    exportedState.inv = false;
-    invSavedSnapshot = currentInvText();
+    exResetKey("inv");            /* ★ V13.9：只重置背包自己的导出状态 */
+    bannerSetBase("inv");         /* ★ V13.9：导入即基线 */
+    invSavedSnapshot = null;      /* ★ V13.9：刚导入 ≠ 已保存（旧版这里显示“✓ 已保存”） */
     renderInventory();
     setStatus("✓ 背包导入成功 · " + invData.length + " 个物品"
       + (invCapacity ? " · 容量 " + (invCapacity.weapon ?? "?") + "/" + (invCapacity.bow ?? "?") + "/" + (invCapacity.shield ?? "?") : "")
@@ -4457,8 +4629,9 @@ function invPendingTotal(){
 let invSavedSnapshot = null;
 let invFileHandle = null;
 function markInvSaved(text){
+  /* ★ V13.9：写进工作目录 = written（只有真正落盘到工作目录才调用这里） */
   invSavedSnapshot = text;
-  exportedState.inv = true;
+  exMarkWritten("inv");
   updateInvSaveChip();
   if(typeof refreshStatus === "function") refreshStatus();
 }
@@ -4466,22 +4639,20 @@ function updateInvSaveChip(){
   const chip = document.getElementById("inv-save-chip");
   if(!chip) return;
   if(!invData.length){ chip.textContent = ""; chip.className = "stat"; return; }
+  const pending = invPendingTotal();
   if(invSavedSnapshot !== null && currentInvText() === invSavedSnapshot){
     chip.textContent = "✓ 已保存";
     chip.className = "stat save-ok";
-  } else {
-    chip.textContent = "● 未保存 " + invPendingTotal() + " 处";
+  } else if(pending > 0){
+    chip.textContent = "● 未保存 " + pending + " 处";
     chip.className = "stat save-warn";
+  } else {
+    /* ★ V13.9：刚导入、什么没改 —— 旧版显示“✓ 已保存”属于误导 */
+    chip.textContent = "— 未修改";
+    chip.className = "stat";
   }
 }
-function downloadInvText(text){
-  const blob = new Blob([text], { type:"application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = "inventory.json";
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
+function downloadInvText(text){ downloadText(text, "inventory.json"); }
 
 /* 💾 保存修改：优先用浏览器的"直接写文件"能力（选一次位置，之后一键静默保存） */
 document.getElementById("inv-save").onclick = async () => {
@@ -4504,22 +4675,27 @@ document.getElementById("inv-save").onclick = async () => {
     setStatus("✓ 已保存到「" + invFileHandle.name + "」 · 修改 " + total + " 处（数量 " + c.nv + " 修饰 " + c.nm + " 强度 " + c.nmv + " 换形 " + c.nName + " 新增 " + c.nAdd + " 删除 " + c.nDel + "）");
   }catch(err){
     if(err && err.name === "AbortError"){ setStatus("已取消保存（未写入）。"); return; }
-    /* 降级：浏览器不支持直接写文件 → 走下载 */
+    /* ★ V13.9：降级 = 手动导出（下载）。只记 manual，不再冒充“已保存”，
+       否则「一键导出」会跳过背包、终端收不到改动。 */
     downloadInvText(text);
-    markInvSaved(text);
-    setStatus("⚠️ 此浏览器不支持直接写文件，已改为下载到下载目录——请手动覆盖到存档文件夹后再回终端。修改 " + total + " 处。");
+    exMarkManual("inv");
+    updateInvSaveChip();
+    setStatus("📥 手动导出：inventory.json 已下载（不影响后续一键导出）—— 终端看不到 Downloads；"
+            + "请点「🎯 一键导出」（自动写回）或自行覆盖到工作目录。修改 " + total + " 处。");
   }
 };
 
-/* 💾 导出 inventory.json：经典下载方式（兼容流程提示） */
+/* 💾 导出 inventory.json：手动导出（经典下载方式） */
 document.getElementById("inv-export").onclick = () => {
   if(!invData.length){ setStatus("请先读取 inventory.json。"); return; }
   const text = currentInvText();
   downloadInvText(text);
+  exMarkManual("inv");
   const c = invChangeCounts(buildInvExport());
-  markInvSaved(text);
   const total = c.nv + c.nm + c.nmv + c.nName + c.nAdd + c.nDel;
-  setStatus("✓ 已导出到下载目录 · 数量 " + c.nv + " · 修饰符 " + c.nm + " · 强度 " + c.nmv + " · 换形 " + c.nName + " · 新增 " + c.nAdd + " · 删除 " + c.nDel + "（记得覆盖到存档文件夹）");
+  setStatus("📥 手动导出：inventory.json 已下载 · 数量 " + c.nv + " · 修饰符 " + c.nm + " · 强度 " + c.nmv
+          + " · 换形 " + c.nName + " · 新增 " + c.nAdd + " · 删除 " + c.nDel
+          + "（终端看不到 Downloads —— 要自动写回请点「🎯 一键导出」）");
   if(total === 0){
     alert("⚠️ 你没有做任何修改。");
   }
@@ -4557,13 +4733,21 @@ document.getElementById("inv-add-confirm").onclick = () => {
   if(occupied >= 420){
     if(!confirm("⚠️ 背包已满（420 格全部占用）。\n\n你可以先删除一些物品，或者继续添加（可能会失败）。\n\n继续添加？")) return;
   }
+  /* ★ V13.9：手输名字不受字段表约束 —— 不在译名表里的名字多半是拼错了，
+     加进去就是“幽灵物品”（游戏里不显示）。这里给一次显式确认。 */
+  if(!ITEM_NAMES[name]){
+    if(!confirm("⚠️ 「" + name + "」不在内置物品译名表里，很可能是拼写错误。\n"
+              + "写进存档后游戏里可能不显示（幽灵物品，只有终端会提示）。\n\n仍要添加？")) return;
+  }
 
+  pushInvUndo(invSnapshot());   /* ★ V13.9：手动添加入撤销栈 */
   invData.push({
     slot: invNewSeq--,
     name: name,
     value: qty,
     equipped: false,
     modifier: 0,
+    modifier_value: 0,
     _new: true
   });
   renderInventory();
@@ -4586,17 +4770,17 @@ function batchApply(testFn, num, label){
     setStatus("❌ 数量无效（0~4294967295）。");
     return;
   }
-  let n = 0;
-  for(const item of invData){
-    if(item._deleted || item._new) continue;
-    if(!testFn(item.name)) continue;
-    if(item.value === num) continue;   /* 已是目标值，不算修改 */
-    invChanges[item.slot] = num;
-    n++;
+  /* ★ V13.9：先挑出真正要改的物品 → 拍撤销快照 → 再统一写入。
+     （顺序反了会把改动本身也拍进快照，撤销就回不去） */
+  const hits = invData.filter(item => !item._deleted && !item._new && testFn(item.name) && item.value !== num);
+  if(!hits.length){
+    setStatus("⚡ 批量：" + label + " 没有需要修改的物品。");
+    return;
   }
+  pushInvUndo(invSnapshot());   /* ★ V13.9：批量操作入撤销栈 */
+  for(const item of hits) invChanges[item.slot] = num;
   renderInventory();
-  if(!n) setStatus("⚡ 批量：" + label + " 没有需要修改的物品。");
-  else setStatus("⚡ 批量：" + label + " " + n + " 件 → " + num + "（导出后生效）");
+  setStatus("⚡ 批量：" + label + " " + hits.length + " 件 → " + num + "（导出后生效）");
 }
 function batchBind(id, cat, label){
   document.getElementById(id).onclick = () => {
@@ -4688,7 +4872,15 @@ function renderHorses(){
       + HORSE_MANE_LIST.map(s => '<option value="' + s + '"' + (s === h.mane ? ' selected' : '') + '>' + esc(horseManeName(s)) + '</option>').join("")
       + '</select></div>'
       + '<div class="hrow"><span class="hlabel">亲密度</span><select class="feat-sel" data-horse="' + h.slot + '" data-field="bonding">'
-      + [0,10,20,30,40,50,60,70,80,90,100].map(v => '<option value="' + v + '"' + (v === h.bonding ? ' selected' : '') + '>' + v + '%</option>').join("")
+      + (function(){
+          /* ★ V13.9：真实值不一定是 10 的倍数（夹具里就有 15%）——
+             旧版列表里没有 15 这个选项，浏览器会显示第一项 0%，误导用户。 */
+          const cur = Number(h.bonding);
+          const list = [0,10,20,30,40,50,60,70,80,90,100];
+          if(Number.isFinite(cur) && list.indexOf(cur) < 0) list.push(cur);
+          list.sort((a, b) => a - b);
+          return list.map(v => '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + v + '%</option>').join("");
+        })()
       + '</select></div>'
       + '</div>';
   }
@@ -4699,6 +4891,7 @@ function renderHorses(){
   const badge = document.getElementById("horse-badge");
   badge.textContent = nChanged ? "(" + nChanged + " 匹修改)" : "";
   badge.style.color = nChanged ? "#d29922" : "#6e7681";
+  updateToolbar();   /* ★ V13.9：撤销按钮可用性跟着马匹改动走 */
 }
 
 function setHorseField(slot, field, value){
@@ -4766,7 +4959,8 @@ function importHorse(file, text){
     hData = data;
     hOriginal = JSON.parse(JSON.stringify(data));
     hChanges = {};
-    exportedState.horse = false;
+    exResetKey("horse");   /* ★ V13.9 */
+    bannerSetBase("horse"); /* ★ V13.9：导入即基线 */
     renderHorses();
     setStatus("✓ 马匹导入成功 · " + hData.filter(x => x.actor).length + " 化马 · 下拉即可更换马具");
     return true;
@@ -4787,18 +4981,10 @@ document.getElementById("horseFileInput").onchange = () => {
 
 document.getElementById("horse-export").onclick = () => {
   if(!hData.length){ setStatus("请先读取 horses.json。"); return; }
-  const blob = new Blob([JSON.stringify(hData, null, 2)], { type:"application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "horses.json";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  downloadText(JSON.stringify(hData, null, 2), "horses.json");
   const n = Object.keys(hChanges).length;
-  exportedState.horse = true;
-  setStatus("✓ 已导出 horses.json · " + n + " 匹马有修改");
+  exMarkManual("horse");   /* ★ V13.9：手动导出（下载）—— 不阻止之后的一键自动写回 */
+  setStatus("📥 手动导出：horses.json 已下载 · " + n + " 匹马有修改（终端看不到 Downloads —— 要自动写回请点「🎯 一键导出」）");
   if(!n) alert("⚠️ 没有修改。");
 };
 
@@ -4839,6 +5025,7 @@ function updatePosMeta(){
   } else {
     nearEl.textContent = "—";
   }
+  updateToolbar();   /* ★ V13.9：撤销按钮可用性跟着位置改动走 */
   refreshStatus();
 }
 function confirmNonMainField(){
@@ -4965,7 +5152,8 @@ function importPosition(file, text){
     data.confirm_non_mainfield = !!data.confirm_non_mainfield;
     pData = data;
     pOriginal = JSON.parse(JSON.stringify(data));
-    exportedState.pos = false;
+    exResetKey("pos");   /* ★ V13.9 */
+    bannerSetBase("pos"); /* ★ V13.9：导入即基线 */
     renderPos();
     setStatus("✓ 位置读取成功 · X=" + data.x + " Y=" + data.y + " Z=" + data.z + " · " + (data.map_type || "未知地图"));
     return true;
@@ -4992,18 +5180,10 @@ document.getElementById("pos-export").onclick = () => {
     map_type: pData.map_type, map_name: pData.map_name,
     confirm_non_mainfield: !!pData.confirm_non_mainfield,
   };
-  const blob = new Blob([JSON.stringify(out, null, 2)], { type:"application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "position.json";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  downloadText(JSON.stringify(out, null, 2), "position.json");
   const n = posChangedCount();
-  exportedState.pos = true;
-  setStatus("✓ 已导出 position.json · " + n + " 处修改 · 回终端写回生效");
+  exMarkManual("pos");   /* ★ V13.9：手动导出（下载）—— 不阻止一键自动写回 */
+  setStatus("📥 手动导出：position.json 已下载 · " + n + " 处修改（终端看不到 Downloads —— 要自动写回请点「🎯 一键导出」）");
   if(!n) alert("⚠️ 没有修改。");
 };
 
@@ -5057,16 +5237,43 @@ function refreshStatus(){
   set("home-pos-detail", posLoaded ? (posPending ? "修改 " + posPending + " 处 · 记得导出" : "暂无未导出修改") : "由 [4]/[5]/[6] 流程生成后读取");
   set("home-pos2", posLoaded ? (posPending ? posPending + " 处未导出" : "—") : "—");
   set("home-pending", totalPending ? totalPending + " 处" : "0 处");
+  /* ★ V13.9：状态标签区分「已写回」/「已下载(未写回)」——旧版两者都显示“已导出”，
+     用户以为终端能收到，其实只落在 Downloads。 */
   const tags = [];
-  if(savLoaded) tags.push(exportedState.sav ? "savdata ✓已导出" : "savdata 未导出");
-  if(invLoaded) tags.push(exportedState.inv ? "背包 ✓已导出" : "背包 未导出");
-  if(horseLoaded) tags.push(exportedState.horse ? "马匹 ✓已导出" : "马匹 未导出");
-  if(posLoaded) tags.push(exportedState.pos ? "位置 ✓已导出" : "位置 未导出");
+  if(savLoaded) tags.push(exTagText("sav", "savdata"));
+  if(invLoaded) tags.push(exTagText("inv", "背包"));
+  if(horseLoaded) tags.push(exTagText("horse", "马匹"));
+  if(posLoaded) tags.push(exTagText("pos", "位置"));
+  const anyManualOnly = ["sav","inv","horse","pos"].some(k => exportState[k].manual && !exportState[k].written);
   set("home-pending-detail", totalPending
     ? (tags.length ? tags.join(" · ") + " · 回终端写回" : "回终端写回")
-    : (tags.length && tags.some(t => t.includes("未导出")) ? "有数据载入但尚无修改" : "所有改动均已导出或尚无改动"));
+    : (anyManualOnly ? "有文件只下载到 Downloads（未写回），可点「🎯 一键导出」自动写回"
+                     : "所有改动均已写回或尚无改动"));
+  updateExportModeChip();
+  refreshUnsavedBanner();                                        /* ★ V13.9：横幅跟着真实改动走 */
   if(typeof updateDashboard === "function") updateDashboard();   /* ★ V13.3：联动仪表盘 */
 }
+/* ★ V13.9：顶栏徽章 —— 明确当前处于哪条导出通道 */
+function updateExportModeChip(){
+  const el = document.getElementById("export-mode-chip");
+  const tgt = document.getElementById("export-target");
+  if(!el) return;
+  const dir = window.__BOTW_EXPORT_DIR__;
+  const tok = window.__BOTW_WRITE_TOKEN__ || "";
+  const canWrite = !!dir && /^https?:$/i.test(location.protocol) && typeof fetch === "function" && !!tok;
+  if(canWrite){
+    el.textContent = "导出模式：自动写回 " + dir;
+    el.className = "chip gold";
+    el.title = "点「🎯 一键导出（自动写回）」会把四个 JSON 直接写回该目录，终端立刻能看到改动";
+    if(tgt) tgt.textContent = "导出目标（自动写回）：" + dir;
+  } else {
+    el.textContent = "导出模式：手动下载（file:// / 无本地服务）";
+    el.className = "chip";
+    el.title = "当前不是终端启动的本地服务模式：导出只落到 Downloads，需要自己覆盖到工作目录";
+    if(tgt) tgt.textContent = "导出目标（手动）：浏览器 Downloads";
+  }
+}
+window.__BOTW_REFRESH_EXPORT_MODE__ = updateExportModeChip;   /* 自动导入脚本设置 dir 后回调 */
 /* ============================================================
    🎯 挑战 / 游戏笔记模块
    ------------------------------------------------------------
@@ -5551,9 +5758,15 @@ updateToolbar();
 
     /* ★ 新增：记住导出目录与文件清单，供「🎯 一键导出」直接写回 backups 用。
        本地服务模式（http://127.0.0.1:<port>/…?auto=1&dir=backups/<日期>）才有值；
-       双击 file:// 打开时这里是空，一键导出会自动退回浏览器下载。 */
+       双击 file:// 打开时这里是空，一键导出会自动退回浏览器下载。
+       ★ V13.9（P1）：同时记住服务端下发的一次性写令牌（token=…），
+       POST /__botw_write 时放进 X-Botw-Token 头；没有令牌（file:// 打开）
+       就保持旧的浏览器下载流程，行为不变。 */
     window.__BOTW_EXPORT_DIR__ = dir;
     window.__BOTW_EXPORT_FILES__ = names;
+    window.__BOTW_WRITE_TOKEN__ = q.get("token") || "";
+    /* ★ V13.9：顶栏导出模式徽章跟着更新（自动写回 / 手动下载） */
+    try { if (typeof window.__BOTW_REFRESH_EXPORT_MODE__ === "function") window.__BOTW_REFRESH_EXPORT_MODE__(); } catch (e) {}
 
     if (!names.length) return;
 

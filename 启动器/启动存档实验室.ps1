@@ -15,7 +15,7 @@ $MainPy   = Join-Path $Root 'core\main.py'
 $Backup   = Join-Path $Root 'backups'
 
 # ---- 版本号（★ V13.7：横幅从 core\main.py 读 APP_VERSION，避免两处打架）----
-$ver = 'V13.7'   # 读不到时的兜底值
+$ver = 'V13.9'   # 读不到时的兜底值
 try {
     $txt = Get-Content -LiteralPath $MainPy -Raw -Encoding UTF8
     if ($txt -match 'APP_VERSION\s*=\s*"([^"]+)"') { $ver = $Matches[1] }
@@ -26,7 +26,7 @@ Clear-Host
 
 # ---- 自检 ----
 $missing = @()
-if (-not (Test-Path -LiteralPath $VenvPy)) { $missing += "Python 虚拟环境 (.venv)" }
+if (-not (Test-Path -LiteralPath $VenvPy)) { $missing += "Python 虚拟环境 (.venv → 运行：python -m venv .venv 创建)" }
 if (-not (Test-Path -LiteralPath $MainPy)) { $missing += "core\main.py" }
 
 if ($missing.Count -gt 0) {

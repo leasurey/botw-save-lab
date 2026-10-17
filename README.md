@@ -42,6 +42,35 @@ pytest                          收集并运行 core\tests 下的 Python 回归
 >
 > Node 回归同理，用 `BOTW_TEST_JSON=<game_data.sav.json 路径>` 指定基准数据；两者都不设时会打印“[跳过]”而不会崩。
 
+## 打包成单文件 exe
+
+目标机器**不需要装 Python**。在项目根执行（需先 `pip install pyinstaller`）：
+
+```text
+pyinstaller --noconfirm --clean --onefile --name "BOTW存档实验室" ^
+  --add-data "%CD%\editor;editor" ^
+  --add-data "%CD%\core\BotW-Save-Editor;BotW-Save-Editor" ^
+  --distpath dist --workpath build\work --specpath build core\main.py
+```
+
+产物：`dist\BOTW存档实验室.exe`（约 12 MB，editor/ 与转换器都打在里面）。
+
+打包版的路径规则与源码版不同，代码已按 `sys.frozen` 自动切换：
+
+| 内容 | 位置 |
+|---|---|
+| `editor/`、`BotW-Save-Editor/`、字段表 | 解包到临时目录（`sys._MEIPASS`，只读） |
+| `game_data.sav`、`backups/` | **exe 同目录**（用户可见、可写） |
+
+验收命令：
+
+```text
+dist\BOTW存档实验室.exe --version
+dist\BOTW存档实验室.exe --selfcheck   检查资源是否完整、打印解析到的路径
+```
+
+> 打包版不提供 `--selftest`（需要源码、pytest 与 Node）。
+
 ## 目录结构
 
 ```text

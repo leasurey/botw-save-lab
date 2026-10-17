@@ -569,14 +569,27 @@ def offer_copy_back_to_root(sav_path):
 #
 # CORE_DIR = 本文件所在目录（core/）
 # BASE_DIR = 项目根目录（core/ 的上一级）
-CORE_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR = os.path.dirname(CORE_DIR)
+#
+# ★ V13.9（打包）：PyInstaller 冻结后 __file__ 位于临时解包目录，不能再靠它推项目根。
+#   打包版把「资源」与「用户数据」分开定位：
+#     BASE_DIR = exe 所在目录（用户看得见、可写：game_data.sav / backups/）
+#     CORE_DIR = 打包资源目录（sys._MEIPASS：editor/、BotW-Save-Editor/）
+FROZEN = bool(getattr(sys, "frozen", False))
+if FROZEN:
+    CORE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+    BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    CORE_DIR = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR = os.path.dirname(CORE_DIR)
 
 # 自检 / 搜索用：按顺序找文件（本目录优先，再找项目根、editor）
 SEARCH_DIRS = [CORE_DIR, BASE_DIR, os.path.join(BASE_DIR, "editor")]
 
-# HTML 编辑器目录
-EDITOR_DIR = os.path.join(BASE_DIR, "editor")
+# HTML 编辑器目录：打包版在资源目录里，源码版在项目根
+_FROZEN_EDITOR = os.path.join(CORE_DIR, "editor")
+EDITOR_DIR = (_FROZEN_EDITOR
+              if (FROZEN and os.path.isdir(_FROZEN_EDITOR))
+              else os.path.join(BASE_DIR, "editor"))
 
 # 生成物（日期文件夹）与备份（.bak / 旧日期文件夹）统一放这里
 BACKUP_DIR = os.path.join(BASE_DIR, "backups")
@@ -3295,6 +3308,10 @@ def _selftest():
       （BOTW_TEST_JSON 环境变量），根目录 game_data.sav 全程不被写入，
       跑完自动删除临时数据。测试默认走非严格基准模式；要按基准档严格校验
       请直接跑单个测试并加 --strict-baseline。"""
+    if FROZEN:
+        print("⚠️ 这是打包版：--selftest 需要源码、pytest 与 Node，打包版不提供。")
+        print("   请在源码目录运行：python core\\main.py --selftest")
+        return 1
     import subprocess as _sp
     import tempfile as _tf
     here = os.path.dirname(os.path.abspath(__file__))
@@ -3364,6 +3381,22 @@ def _selftest():
     return 0 if failed == 0 else 1
 
 
+def _selfcheck():
+    """★ V13.9（打包）：打印解析到的关键路径与资源完整性，用于验收打包产物。"""
+    print(f"BOTW Save Lab {VERSION} · 运行自检")
+    print(f"  模式      : {'打包版 (frozen)' if FROZEN else '源码版'}")
+    print(f"  程序目录  : {BASE_DIR}")
+    print(f"  资源目录  : {CORE_DIR}")
+    print(f"  编辑器    : {HTML_FILE or '未找到'}")
+    print(f"  C++ 转换器: {EXE_FILE or '未找到'}")
+    print(f"  字段表目录: {EXE_DIR}")
+    print(f"  备份目录  : {BACKUP_DIR}")
+    missing = [f for f in SAVDATA_FILES if not os.path.isfile(os.path.join(EXE_DIR, f))]
+    ok = bool(HTML_FILE) and bool(EXE_FILE) and not missing
+    print("  结论      : " + ("✓ 资源完整" if ok else "❌ 资源缺失：" + (", ".join(missing) or "编辑器/转换器")))
+    return 0 if ok else 1
+
+
 def main():
     # ★ V13.0：命令行开关（不进入交互菜单）
     argv = sys.argv[1:]
@@ -3382,6 +3415,7 @@ def main():
             print("  python main.py            进入交互菜单")
             print("  python main.py --selftest 跑全部回归测试（Python + Node）")
             print("  python main.py --version  打印版本")
+            print("  python main.py --selfcheck 打印解析到的路径并检查资源完整性（打包版验收用）")
             print("  pytest                    收集并运行 core\\tests 下的三条 Python 回归")
             print("  python core\\tests\\test_position.py [--strict-baseline]")
             print("                            单测；--strict-baseline = 按基准档严格断言")
@@ -3389,6 +3423,8 @@ def main():
             return
         if a in ("--selftest", "--self-test"):
             sys.exit(_selftest())
+        if a == "--selfcheck":
+            sys.exit(_selfcheck())
 
     mode = choose_mode()
     if mode is None:

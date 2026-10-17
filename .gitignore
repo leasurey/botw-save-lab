@@ -31,6 +31,11 @@ __pycache__/
 # ---- 自检临时数据（--selftest 现造现删，异常残留时兜底）----
 botw_selftest_data_*/
 
+# ---- 打包产物（PyInstaller；体积大且可复现，不随仓库分发）----
+dist/
+build/
+*.spec
+
 # ---- 杂项 ----
 *.log
 *.tmp

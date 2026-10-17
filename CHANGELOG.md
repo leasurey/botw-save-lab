@@ -107,13 +107,23 @@ BOTW_AUTO_DETECT=1                     改动 JSON 后 2.0 秒自动继续（旧
 **回归入口调整**：三个 Python 测试新增 `BOTW_TEST_SAV=<路径>`，Node 测试沿用 `BOTW_TEST_JSON`。
 清理个人存档后，`pytest` 无需把任何 `.sav` 放进项目目录即可运行（测试只在临时目录写副本）。
 
-### 📦 打包（单文件 exe）
+### 📦 打包（免安装文件夹，与发行仓库同构）
 
-新增对 PyInstaller 冻结运行的支持，产物为 `dist\BOTW存档实验室.exe`（约 12 MB，含编辑器与转换器）。
+新增对 PyInstaller 冻结运行的支持。发行形态与 V13.8 的 zip 完全一致（顶层 `BOTW存档实验室V13.9/`，
+共 46 个条目）：
 
-- **路径分流**：冻结后 `__file__` 在临时解包目录，不能再靠它推项目根。现在按 `sys.frozen` 分开：
-  资源（`editor/`、`BotW-Save-Editor/`、字段表）从 `sys._MEIPASS` 读；
-  用户数据（`game_data.sav`、`backups/`）固定在 **exe 同目录**，不会写进临时目录丢失。
+```text
+BOTW存档实验室V13.9\
+├─ botw_lab.exe          ← 双击启动
+├─ _internal\            ← Python 运行时
+├─ editor\               ← 编辑器 + 图标 + 挑战数据
+├─ BotW-Save-Editor\     ← C++ 兜底转换器 + 字段表
+└─ 使用说明.txt
+```
+
+- **路径分流**：冻结后 `__file__` 在运行时目录里，不能再靠它推项目根。现在按 `sys.frozen` 分开：
+  资源从 `sys._MEIPASS`（onedir 即 `_internal/`）读，找不到时回落到 exe 同级；
+  用户数据（`game_data.sav`、`backups/`）固定在 **exe 同目录**。
 - **新增 `--selfcheck`**：打印模式、程序目录、资源目录、编辑器、转换器、字段表、备份目录，
   并检查资源完整性；返回码 0/1，可直接用于发布前验收。
 - **打包版禁用 `--selftest`**：它依赖源码、pytest 与 Node，冻结后没有意义，改为提示回源码目录运行。
@@ -122,10 +132,13 @@ BOTW_AUTO_DETECT=1                     改动 JSON 后 2.0 秒自动继续（旧
 实测（Windows 10 / PyInstaller 6.22.3 / Python 3.13.14）：
 
 ```text
---version                    BOTW Save Lab V13.9 · Main: …\_MEI000022502\main.py
+文件夹大小                    28 MB（zip 10.79 MB）
+--version                    BOTW Save Lab V13.9 · Main: …\_internal\main.py
 --selfcheck                  frozen ✓ 资源完整（编辑器/转换器/三张字段表）
 [1] 真实转档                  1,027,208 字节 → game_data.sav.json
                              signature=18203 · savdata=128,399 条 · 与源码版一致
+结构对比（对 v13.8 zip）       46 项对 46 项；差异仅 OpenSSL DLL 命名
+                             （libcrypto-3-x64.dll → libcrypto-3.dll）
 ```
 
 ---

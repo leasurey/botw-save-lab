@@ -42,34 +42,47 @@ pytest                          收集并运行 core\tests 下的 Python 回归
 >
 > Node 回归同理，用 `BOTW_TEST_JSON=<game_data.sav.json 路径>` 指定基准数据；两者都不设时会打印“[跳过]”而不会崩。
 
-## 打包成单文件 exe
+## 打包成免安装文件夹（发行版形态）
 
-目标机器**不需要装 Python**。在项目根执行（需先 `pip install pyinstaller`）：
+目标机器**不需要装 Python**。发行包与 `botw-save-lab-release` 里的 zip 完全同构：
 
 ```text
-pyinstaller --noconfirm --clean --onefile --name "BOTW存档实验室" ^
-  --add-data "%CD%\editor;editor" ^
-  --add-data "%CD%\core\BotW-Save-Editor;BotW-Save-Editor" ^
+BOTW存档实验室V13.9\
+├─ botw_lab.exe          ← 双击这个
+├─ _internal\            ← Python 运行时（PyInstaller onedir）
+├─ editor\               ← 网页编辑器 + 图标 + 挑战数据
+├─ BotW-Save-Editor\     ← C++ 兜底转换器 + 三张字段表
+└─ 使用说明.txt
+```
+
+构建（项目根执行，需先 `pip install pyinstaller`）：
+
+```text
+pyinstaller --noconfirm --clean --onedir --name botw_lab ^
   --distpath dist --workpath build\work --specpath build core\main.py
 ```
 
-产物：`dist\BOTW存档实验室.exe`（约 12 MB，editor/ 与转换器都打在里面）。
+然后把 `editor\` 与 `core\BotW-Save-Editor\` 复制到 `dist\botw_lab\`，改名为
+`BOTW存档实验室V<版本>`，再补一份 `使用说明.txt`。压缩包内顶层目录名与版本号一致。
 
-打包版的路径规则与源码版不同，代码已按 `sys.frozen` 自动切换：
+打包版的路径规则（代码按 `sys.frozen` 自动切换）：
 
 | 内容 | 位置 |
 |---|---|
-| `editor/`、`BotW-Save-Editor/`、字段表 | 解包到临时目录（`sys._MEIPASS`，只读） |
-| `game_data.sav`、`backups/` | **exe 同目录**（用户可见、可写） |
+| `editor/`、`BotW-Save-Editor/`、字段表 | **exe 同级目录**（与发行包一致，可直接替换） |
+| Python 运行时 | `_internal/`（只读，不要动） |
+| `game_data.sav`、`backups/` | **exe 同级目录**（用户可见、可写） |
 
 验收命令：
 
 ```text
-dist\BOTW存档实验室.exe --version
-dist\BOTW存档实验室.exe --selfcheck   检查资源是否完整、打印解析到的路径
+botw_lab.exe --version
+botw_lab.exe --selfcheck   检查资源是否完整、打印解析到的路径
 ```
 
-> 打包版不提供 `--selftest`（需要源码、pytest 与 Node）。
+> 打包版不提供 `--selftest`（需要源码、pytest 与 Node）。如需单文件版，
+> 把 `--onedir` 换成 `--onefile` 并加 `--add-data "<abs>\editor;editor"`、
+> `--add-data "<abs>\core\BotW-Save-Editor;BotW-Save-Editor"`（路径必须绝对）。
 
 ## 目录结构
 
